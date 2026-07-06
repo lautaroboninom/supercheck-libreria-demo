@@ -1,0 +1,20 @@
+{
+  "name": "SuperCheck",
+  "short_name": "SuperCheck",
+  "description": "Punto de venta, stock, compras y reportes para supermercado",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#111111",
+  "icons": [
+    {
+      "src": "/branding/supermercado-pos-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "orientation": "portrait"
+}

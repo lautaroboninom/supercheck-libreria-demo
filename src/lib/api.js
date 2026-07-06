@@ -1,0 +1,468 @@
+// web/src/lib/api.js
+import { demoHttp, getDemoBarcodeLabelsUrl, isDemoMode } from './demoApi';
+
+const devApiPort = window.location.port === '5175' ? '18100' : '8000';
+const isDevVite = window.location.port === '5173' || window.location.port === '5175';
+const BASE =
+  import.meta.env.VITE_API_URL?.replace(/\/+$/, '') ||
+  (isDevVite ? `${window.location.protocol}//${window.location.hostname}:${devApiPort}` : '');
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+let csrfBootstrapPromise = null;
+export const setToken = () => {};
+
+function readCookie(name) {
+  const cookie = document.cookie || '';
+  const prefix = `${name}=`;
+  const parts = cookie.split(';');
+  for (const part of parts) {
+    const item = part.trim();
+    if (item.startsWith(prefix)) {
+      return decodeURIComponent(item.slice(prefix.length));
+    }
+  }
+  return '';
+}
+
+async function ensureCsrfCookie() {
+  if (readCookie('csrftoken')) return;
+  if (!csrfBootstrapPromise) {
+    csrfBootstrapPromise = fetch(`${BASE}/api/auth/csrf/`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    }).finally(() => {
+      csrfBootstrapPromise = null;
+    });
+  }
+  await csrfBootstrapPromise;
+}
+
+async function http(path, { method = 'GET', body, headers } = {}) {
+  if (isDemoMode()) {
+    return demoHttp(path, { method, body, headers });
+  }
+
+  const normalizedMethod = String(method || 'GET').toUpperCase();
+  if (!SAFE_METHODS.has(normalizedMethod)) {
+    await ensureCsrfCookie();
+  }
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+  const requestHeaders = {
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(headers || {}),
+  };
+  if (!SAFE_METHODS.has(normalizedMethod)) {
+    const csrfToken = readCookie('csrftoken');
+    if (csrfToken) {
+      requestHeaders['X-CSRFToken'] = csrfToken;
+    }
+  }
+  if (isFormData && requestHeaders['Content-Type']) {
+    delete requestHeaders['Content-Type'];
+  }
+
+  let requestBody;
+  if (body !== undefined && body !== null) {
+    requestBody = isFormData ? body : JSON.stringify(body);
+  }
+
+  const res = await fetch(`${BASE}${path}`, {
+    method: normalizedMethod,
+    credentials: 'include',
+    headers: requestHeaders,
+    body: requestBody,
+  });
+
+  const ct = res.headers.get('content-type') || '';
+  const data = ct.includes('application/json') ? await res.json() : await res.text();
+
+  if (!res.ok) {
+    const msg = formatErrorMessage(data);
+    const err = new Error(`${res.status} ${res.statusText}: ${msg}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+function formatErrorMessage(data) {
+  if (typeof data === 'string') return data;
+  if (Array.isArray(data)) {
+    const parts = data
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object' && typeof item.detail === 'string') return item.detail;
+        return JSON.stringify(item);
+      })
+      .filter(Boolean);
+    return parts.join(' ') || 'Error de validacion';
+  }
+  if (data && typeof data === 'object') {
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail)) return formatErrorMessage(data.detail);
+    const values = Object.values(data);
+    if (values.length) {
+      return values.map((value) => formatErrorMessage(value)).filter(Boolean).join(' ');
+    }
+  }
+  return JSON.stringify(data);
+}
+
+export const api = {
+  get: (p, opts) => http(p, { ...opts, method: 'GET' }),
+  post: (p, body, opts) => http(p, { ...opts, method: 'POST', body }),
+  put: (p, body, opts) => http(p, { ...opts, method: 'PUT', body }),
+  patch: (p, body, opts) => http(p, { ...opts, method: 'PATCH', body }),
+  del: (p, opts) => http(p, { ...opts, method: 'DELETE' }),
+};
+
+export default api;
+export { isDemoMode };
+
+// Auth
+export const getAuthCsrf = () => api.get('/api/auth/csrf/');
+export const postLogin = (email, password) => api.post('/api/auth/login/', { email, password });
+export const postAuthForgot = (email) => api.post('/api/auth/forgot/', { email });
+export const postAuthReset = (tokenValue, password) => api.post('/api/auth/reset/', { token: tokenValue, password });
+export const getAuthSession = () => api.get('/api/auth/session/');
+export const postAuthLogout = () => api.post('/api/auth/logout/', {});
+export const getSystemUpdateStatus = () => api.get('/api/system/update/status/');
+export const postSystemUpdateCheck = (payload = {}) => api.post('/api/system/update/check/', payload || {});
+export const postSystemUpdateRestart = (payload = {}) => api.post('/api/system/update/restart/', payload || {});
+
+// Usuarios y permisos
+export const getUsuarios = () => api.get('/api/usuarios/');
+export const postUsuario = (payload) => api.post('/api/usuarios/', payload);
+export const patchUsuarioActivo = (id, activo) => api.patch(`/api/usuarios/${id}/activar/`, { activo });
+export const patchUsuarioReset = (id) => api.patch(`/api/usuarios/${id}/reset-pass/`, {});
+export const patchUsuarioRolePerm = (id, payload) => api.patch(`/api/usuarios/${id}/roleperm/`, payload);
+export const postUsuarioSupervisorCode = (id) => api.post(`/api/usuarios/${id}/supervisor-code/`, {});
+export const deleteUsuario = (id) => api.del(`/api/usuarios/${id}/`);
+export const getPermisosCatalogo = () => api.get('/api/permisos/catalogo/');
+export const getUsuarioPermisos = (id) => api.get(`/api/usuarios/${id}/permisos/`);
+export const putUsuarioPermisos = (id, payload) => api.put(`/api/usuarios/${id}/permisos/`, payload);
+export const postUsuarioPermisosReset = (id) => api.post(`/api/usuarios/${id}/permisos/reset/`, {});
+
+// Retail catalogo
+export const getRetailProductos = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.active !== undefined) qs.set('active', String(params.active));
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/productos/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailProducto = (payload) => api.post('/api/retail/productos/', payload);
+export const patchRetailProducto = (id, payload) => api.patch(`/api/retail/productos/${id}/`, payload);
+export const postRetailProductosAjustePrecios = (payload) =>
+  api.post('/api/retail/productos/ajuste-precios/', payload || {});
+
+export const getRetailAtributos = () => api.get('/api/retail/atributos/');
+export const getRetailAtributoValores = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.attribute_id) qs.set('attribute_id', String(params.attribute_id));
+  if (params.attribute_code) qs.set('attribute_code', String(params.attribute_code));
+  if (params.q) qs.set('q', String(params.q));
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/atributos/valores/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailAtributo = (payload) => api.post('/api/retail/atributos/', payload);
+export const patchRetailAtributo = (id, payload) => api.patch(`/api/retail/atributos/${id}/`, payload);
+export const deleteRetailAtributo = (id) => api.del(`/api/retail/atributos/${id}/`);
+
+export const getRetailVariantes = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.active !== undefined) qs.set('active', String(params.active));
+  if (params.product_id) qs.set('product_id', String(params.product_id));
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/variantes/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailVariante = (payload) => api.post('/api/retail/variantes/', payload);
+export const patchRetailVariante = (id, payload) => api.patch(`/api/retail/variantes/${id}/`, payload);
+export const deleteRetailVariante = (id) => api.del(`/api/retail/variantes/${id}/`);
+export const getRetailVarianteByScan = (codigo) => api.get(`/api/retail/variantes/escanear/${encodeURIComponent(codigo)}/`);
+export const getRetailVarianteBarcodes = (id) => api.get(`/api/retail/variantes/${id}/barcodes/`);
+export const postRetailVarianteBarcodeGenerate = (id, payload) =>
+  api.post(`/api/retail/variantes/${id}/barcodes/generate/`, payload || {});
+export const postRetailVarianteBarcodeAssociate = (id, payload) =>
+  api.post(`/api/retail/variantes/${id}/barcodes/associate/`, payload || {});
+export const postRetailVarianteBarcodePrimary = (id, payload) =>
+  api.post(`/api/retail/variantes/${id}/barcodes/primary/`, payload || {});
+export const getRetailVarianteBarcodeLabelsUrl = (id, params = {}) => {
+  if (isDemoMode()) {
+    return getDemoBarcodeLabelsUrl(id, params);
+  }
+  const qs = new URLSearchParams();
+  if (params.scope) qs.set('scope', String(params.scope));
+  if (params.copies) qs.set('copies', String(params.copies));
+  if (params.code) qs.set('code', String(params.code));
+  if (params.layout) qs.set('layout', String(params.layout));
+  if (params.label_width_mm !== undefined && params.label_width_mm !== null) {
+    qs.set('label_width_mm', String(params.label_width_mm));
+  }
+  if (params.label_height_mm !== undefined && params.label_height_mm !== null) {
+    qs.set('label_height_mm', String(params.label_height_mm));
+  }
+  return `${BASE}/api/retail/variantes/${id}/barcodes/labels.pdf${qs.toString() ? `?${qs}` : ''}`;
+};
+
+// Compras
+export const getRetailComprasConfig = () => api.get('/api/retail/compras/config/');
+export const getRetailComprasProveedores = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/compras/proveedores/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailCompra = (payload) => api.post('/api/retail/compras/', payload);
+export const getRetailCompra = (id) => api.get(`/api/retail/compras/${id}/`);
+export const getRetailPurchaseOrders = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/compras/ordenes/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailPurchaseOrder = (payload) => api.post('/api/retail/compras/ordenes/', payload || {});
+export const postRetailPurchaseOrderReceive = (id, payload) =>
+  api.post(`/api/retail/compras/ordenes/${id}/recepcionar/`, payload || {});
+
+// Caja
+export const postRetailCajaApertura = (payload) => api.post('/api/retail/caja/apertura/', payload || {});
+export const postRetailCajaCierre = (payload) => api.post('/api/retail/caja/cierre/', payload || {});
+export const postRetailCajaCierreAsistido = (payload) => api.post('/api/retail/caja/cierre-asistido/', payload || {});
+export const getRetailCajaActual = () => api.get('/api/retail/caja/actual/');
+export const getRetailCajaCuentas = () => api.get('/api/retail/caja/cuentas/');
+export const getRetailCaja = (id) => api.get(`/api/retail/caja/${id}/`);
+export const getRetailOperacionPendientes = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/operacion/pendientes/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailOperacionIncidenciaResolver = (id, payload) =>
+  api.post(`/api/retail/operacion/incidencias/${id}/resolver/`, payload || {});
+
+// Ventas/facturacion
+export const getRetailVentas = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  if (params.q) qs.set('q', params.q);
+  if (params.channel) qs.set('channel', params.channel);
+  if (params.payment_method) qs.set('payment_method', params.payment_method);
+  if (params.status) qs.set('status', params.status);
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.offset) qs.set('offset', String(params.offset));
+  return api.get(`/api/retail/ventas/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailVentaDetail = (id) => api.get(`/api/retail/ventas/${id}/`);
+export const getRetailPromociones = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.active !== undefined) qs.set('active', String(params.active));
+  return api.get(`/api/retail/promociones/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailPromocionDetail = (id) => api.get(`/api/retail/promociones/${id}/`);
+export const postRetailPromocion = (payload) => api.post('/api/retail/promociones/', payload || {});
+export const patchRetailPromocion = (id, payload) => api.patch(`/api/retail/promociones/${id}/`, payload || {});
+export const putRetailPromocion = (id, payload) => api.put(`/api/retail/promociones/${id}/`, payload || {});
+export const postRetailVentaCotizar = (payload) => api.post('/api/retail/ventas/cotizar/', payload);
+export const postRetailVentaConfirmar = (payload) => api.post('/api/retail/ventas/confirmar/', payload);
+export const postRetailPosVoidLineAuthorization = (payload) =>
+  api.post('/api/retail/pos/authorizations/void-line/', payload || {});
+export const postRetailVentaAnular = (id, payload) => api.post(`/api/retail/ventas/${id}/anular/`, payload || {});
+export const postRetailVentaDevolver = (id, payload) => api.post(`/api/retail/ventas/${id}/devolver/`, payload || {});
+export const postRetailVentaSolicitud = (id, payload) => api.post(`/api/retail/ventas/${id}/solicitudes/`, payload || {});
+export const postRetailVentaCambiar = (id, payload) => api.post(`/api/retail/ventas/${id}/cambiar/`, payload || {});
+export const getRetailStoreCredits = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.customer_doc) qs.set('customer_doc', params.customer_doc);
+  if (params.status) qs.set('status', params.status);
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/store-credits/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailStoreCreditConsume = (id, payload) =>
+  api.post(`/api/retail/store-credits/${id}/consume/`, payload || {});
+export const getRetailInventarioConteos = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/inventario/conteos/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailInventarioConteo = (payload) => api.post('/api/retail/inventario/conteos/', payload || {});
+export const getRetailInventarioConteoDetail = (id) => api.get(`/api/retail/inventario/conteos/${id}/`);
+export const postRetailInventarioConteoCerrar = (id, payload) =>
+  api.post(`/api/retail/inventario/conteos/${id}/cerrar/`, payload || {});
+export const getRetailReposicionSugerida = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.days) qs.set('days', String(params.days));
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/reposicion/sugerida/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailStockLocations = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/stock/locations/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailStockTransfers = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/stock/transfers/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailStockTransfer = (payload) => api.post('/api/retail/stock/transfers/', payload || {});
+export const getRetailLotsAlerts = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.days) qs.set('days', String(params.days));
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/lotes/alerts/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailWasteEvents = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/inventario/mermas/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailWasteEvent = (payload) => api.post('/api/retail/inventario/mermas/', payload || {});
+export const getRetailPosDrafts = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.q) qs.set('q', params.q);
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/pos/drafts/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailPosDraftDetail = (id) => api.get(`/api/retail/pos/drafts/${id}/`);
+export const postRetailPosDraft = (payload) => api.post('/api/retail/pos/drafts/', payload || {});
+export const patchRetailPosDraft = (id, payload) => api.patch(`/api/retail/pos/drafts/${id}/`, payload || {});
+export const postRetailPosDraftConfirm = (id, payload) =>
+  api.post(`/api/retail/pos/drafts/${id}/confirm/`, payload || {});
+export const getRetailGarantiaTicket = (codigo) =>
+  api.get(`/api/retail/garantias/ticket/${encodeURIComponent(codigo)}/`);
+export const getRetailGarantiasActivas = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.tipo) qs.set('tipo', params.tipo);
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.offset) qs.set('offset', String(params.offset));
+  return api.get(`/api/retail/garantias/activas/${qs.toString() ? `?${qs}` : ''}`);
+};
+
+export const postRetailFacturaEmitir = (ventaId) => api.post(`/api/retail/facturacion/${ventaId}/emitir/`, {});
+export const getRetailFactura = (ventaId) => api.get(`/api/retail/facturacion/${ventaId}/`);
+export const postRetailNotaCredito = (ventaId, payload) => api.post(`/api/retail/facturacion/${ventaId}/nota-credito/`, payload || {});
+
+// Config
+export const getRetailConfigSettings = () => api.get('/api/retail/config/settings/');
+export const getRetailConfigArcaAccounts = () => api.get('/api/retail/config/arca-accounts/');
+export const getRetailConfigPageSettings = () => api.get('/api/retail/config/page-settings/');
+export const putRetailConfigSettings = (payload) => api.put('/api/retail/config/settings/', payload || {});
+export const putRetailConfigArcaAccounts = (payload) => api.put('/api/retail/config/arca-accounts/', payload || {});
+export const putRetailConfigPageSettings = (payload) => api.put('/api/retail/config/page-settings/', payload || {});
+export const getRetailConfigPaymentAccounts = () => api.get('/api/retail/config/payment-accounts/');
+export const putRetailConfigPaymentAccounts = (payload) =>
+  api.put('/api/retail/config/payment-accounts/', payload || {});
+
+// Online
+export const postRetailOnlineImportCatalogo = (payload) => api.post('/api/retail/online/import/catalogo/', payload || {});
+export const postRetailOnlineSyncCatalogo = (payload) => api.post('/api/retail/online/sync/catalogo/', payload || {});
+export const postRetailOnlineSyncStock = (payload) => api.post('/api/retail/online/sync/stock/', payload || {});
+export const getRetailOnlineFailedJobsSummary = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/online/jobs/failed-summary/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailOnlineRetryFailed = (payload) => api.post('/api/retail/online/jobs/retry-failed/', payload || {});
+export const postRetailOnlineJobsProcess = (payload) => api.post('/api/retail/online/jobs/process/', payload || {});
+export const postRetailOnlineOAuthReauthorizeUrl = (payload) =>
+  api.post('/api/retail/online/oauth/reauthorize-url/', payload || {});
+export const postRetailOnlineOAuthApplyToken = (payload) =>
+  api.post('/api/retail/online/oauth/apply-token/', payload || {});
+export const getRetailFulfillmentOrders = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/fulfillment/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailFulfillmentOrder = (payload) => api.post('/api/retail/fulfillment/', payload || {});
+
+// Reportes
+export const getRetailReporteResumenComercial = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  return api.get(`/api/retail/reportes/resumen-comercial/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailReporteAnalisisProductos = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  return api.get(`/api/retail/reportes/analisis-productos/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailReporteAnalisisProveedores = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  return api.get(`/api/retail/reportes/analisis-proveedores/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailReporteMasVendidos = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  if (params.limit) qs.set('limit', params.limit);
+  return api.get(`/api/retail/reportes/mas-vendidos/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailReporteTallesColores = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  return api.get(`/api/retail/reportes/talles-colores/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailReporteBajoStock = () => api.get('/api/retail/reportes/bajo-stock/');
+export const getRetailReporteRentabilidad = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  return api.get(`/api/retail/reportes/rentabilidad/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailReporteVentasPorMedio = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  return api.get(`/api/retail/reportes/ventas-por-medio/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailReporteCierreCaja = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  return api.get(`/api/retail/reportes/cierre-caja/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailReporteDevoluciones = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  return api.get(`/api/retail/reportes/devoluciones/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailReporteAutorizacionesPos = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.desde) qs.set('desde', params.desde);
+  if (params.hasta) qs.set('hasta', params.hasta);
+  return api.get(`/api/retail/reportes/autorizaciones-pos/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const getRetailDashboardOperativo = () => api.get('/api/retail/dashboard/operativo/');
+export const getRetailAlertas = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  return api.get(`/api/retail/alertas/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailAlertaAck = (id, payload) => api.post(`/api/retail/alertas/${id}/ack/`, payload || {});
+export const getRetailRiskEvents = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.severity) qs.set('severity', params.severity);
+  if (params.limit) qs.set('limit', String(params.limit));
+  return api.get(`/api/retail/risk/events/${qs.toString() ? `?${qs}` : ''}`);
+};
+export const postRetailRiskEvent = (payload) => api.post('/api/retail/risk/events/', payload || {});
+
+
+

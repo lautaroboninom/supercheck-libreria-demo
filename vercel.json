@@ -4,8 +4,8 @@
   "outputDirectory": "dist",
   "env": {
     "VITE_DEMO_MODE": "1",
-    "VITE_APP_NAME": "SuperCheck - Librería - Demo",
-    "VITE_COMPANY_LEGAL": "SuperCheck - Librería - Demo",
+    "VITE_APP_NAME": "SuperCheck Demo",
+    "VITE_COMPANY_LEGAL": "SuperCheck Demo",
     "VITE_SW": "0"
   },
   "rewrites": [
