@@ -1,5 +1,14 @@
 {
+  "installCommand": "npm install",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "devCommand": "npm run dev"
+  "env": {
+    "VITE_DEMO_MODE": "1",
+    "VITE_APP_NAME": "SuperCheck - Librería - Demo",
+    "VITE_COMPANY_LEGAL": "SuperCheck - Librería - Demo",
+    "VITE_SW": "0"
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
