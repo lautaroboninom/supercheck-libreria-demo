@@ -929,7 +929,13 @@ function loadState() {
     const raw = window.localStorage.getItem(DEMO_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed?.version === DEMO_VERSION) return parsed;
+      if (parsed?.version === DEMO_VERSION) {
+        if (!parsed.sessionActive) {
+          parsed.sessionActive = true;
+          saveState(parsed);
+        }
+        return parsed;
+      }
     }
   } catch {
     // Si localStorage falla, se reinicia el demo.
@@ -1372,14 +1378,20 @@ function dashboard(state) {
 function routeDemo(state, method, pathname, params, payload) {
   if (pathname === '/api/ping/') return { ok: true, demo: true };
   if (pathname === '/api/auth/csrf/') return { ok: true, csrfToken: 'demo' };
-  if (pathname === '/api/auth/session/') return state.sessionActive ? { user: currentUser(state), features: { demo: true } } : null;
+  if (pathname === '/api/auth/session/') {
+    if (!state.sessionActive) {
+      state.sessionActive = true;
+      saveState(state);
+    }
+    return { user: currentUser(state), features: { demo: true } };
+  }
   if (pathname === '/api/auth/login/') {
     state.sessionActive = true;
     saveState(state);
     return { user: currentUser(state), features: { demo: true } };
   }
   if (pathname === '/api/auth/logout/') {
-    state.sessionActive = false;
+    state.sessionActive = true;
     saveState(state);
     return { ok: true };
   }

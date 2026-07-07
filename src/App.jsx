@@ -9,6 +9,7 @@ import {
   getRetailConfigPageSettings,
   getRetailOnlineFailedJobsSummary,
   getSystemUpdateStatus,
+  isDemoMode,
   postSystemUpdateCheck,
   postSystemUpdateRestart,
 } from './lib/api';
@@ -190,6 +191,7 @@ export default function App() {
   }, [user]);
 
   const appName = pageSettings.app_name || import.meta.env.VITE_APP_NAME || 'SuperCheck';
+  const demoMode = isDemoMode();
 
   useEffect(() => {
     const keyByPath = {
@@ -217,6 +219,10 @@ export default function App() {
 
   const handleLogout = () => {
     setHeaderMenuOpen(false);
+    if (demoMode) {
+      nav('/');
+      return;
+    }
     logout();
     nav('/login');
   };

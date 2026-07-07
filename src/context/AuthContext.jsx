@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { getAuthCsrf, getAuthSession, postAuthLogout, postLogin } from "../lib/api";
+import { getAuthCsrf, getAuthSession, isDemoMode, postAuthLogout, postLogin } from "../lib/api";
 import { registerFeatures } from "@/lib/features";
 import { normalizePermissionsMap } from "@/lib/permissions";
 
@@ -80,8 +80,12 @@ export function AuthProvider({ children }) {
         console.debug("Auth logout request failed", err);
       }
     } finally {
-      setUser(null);
-      setLoading(false);
+      if (isDemoMode()) {
+        await refreshSession();
+      } else {
+        setUser(null);
+        setLoading(false);
+      }
     }
   }
 

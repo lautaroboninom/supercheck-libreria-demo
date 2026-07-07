@@ -23,6 +23,7 @@ import Inventario from './pages/Inventario.jsx';
 import Guia from './pages/Guia.jsx';
 import ConfigGeneral from './pages/ConfigGeneral.jsx';
 import ConfigPaginas from './pages/ConfigPaginas.jsx';
+import { isDemoMode } from './lib/api';
 import { PERMISSION_CODES } from './lib/permissions';
 
 function resolveInitialRoute() {
@@ -59,11 +60,13 @@ if ('serviceWorker' in navigator) {
   }
 }
 
+const demoMode = isDemoMode();
+
 const router = createBrowserRouter([
-  { path: '/login', element: <Login /> },
-  { path: '/recuperar', element: <ForgotPassword /> },
-  { path: '/403', element: <Forbidden /> },
-  { path: '/restablecer', element: <ResetPassword /> },
+  { path: '/login', element: demoMode ? <Navigate to="/" replace /> : <Login /> },
+  { path: '/recuperar', element: demoMode ? <Navigate to="/" replace /> : <ForgotPassword /> },
+  { path: '/403', element: demoMode ? <Navigate to="/" replace /> : <Forbidden /> },
+  { path: '/restablecer', element: demoMode ? <Navigate to="/" replace /> : <ResetPassword /> },
   {
     path: '/',
     element: <App />,
