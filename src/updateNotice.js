@@ -3,7 +3,7 @@ const UPDATE_NOTICE = {
   title: 'Consola profesional SuperCheck',
   subtitle: 'POS, productos, compras e inventario',
   intro:
-    'Esta actualizacion integra las ultimas mejoras utiles de RetailHub y las adapta al flujo de supermercado: caja rapida, catalogo claro, codigos, proveedores y control operativo.',
+    'Esta actualizacion integra las ultimas mejoras utiles de RetailHub y las adapta al flujo de librería: caja rapida, catalogo claro, codigos, proveedores y control operativo.',
   sections: [
     {
       title: 'Productos',

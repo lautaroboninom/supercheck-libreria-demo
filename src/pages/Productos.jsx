@@ -204,7 +204,7 @@ function buildOptionValues(rows) {
   return out;
 }
 
-const BARCODE_PRINT_PREFS_KEY = 'supermercado_pos_barcode_print_prefs_v1';
+const BARCODE_PRINT_PREFS_KEY = 'libreria_pos_barcode_print_prefs_v1';
 
 function buildOptionalOptionValues(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -1324,7 +1324,7 @@ export default function ProductosPage() {
           Productos y presentaciones
         </HelpTitle>
         <p className="text-sm text-gray-600">
-          Catalogo de supermercado con SKUs, barcodes multiples, productos pesables, stock y precios por presentacion.
+          Catalogo de librería con SKUs, barcodes multiples, stock y precios por presentacion.
         </p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-neutral-700">
@@ -1388,7 +1388,7 @@ export default function ProductosPage() {
                   <HelpTitle
                     as="h3"
                     className="text-lg font-semibold"
-                    help="Crea el item base, por ejemplo Coca Cola 2.25L. Agrupa sus presentaciones, codigos de barra y reglas de stock bajo el mismo producto."
+                    help="Crea el item base, por ejemplo Cuaderno universitario. Agrupa sus presentaciones, codigos de barra y reglas de stock bajo el mismo producto."
                   >
                     Nuevo producto
                   </HelpTitle>

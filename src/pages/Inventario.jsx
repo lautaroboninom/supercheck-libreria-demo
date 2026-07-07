@@ -699,7 +699,7 @@ export default function InventarioPage() {
                       className="input"
                       value={itemSearch}
                       onChange={(e) => setItemSearch(e.target.value)}
-                      placeholder="Ej: Leche 1L / SKU / barcode"
+                      placeholder="Ej: Cuaderno A4 / SKU / barcode"
                     />
                   </div>
                   <span className="text-xs text-neutral-500">Mostrando {formatInt(filteredItems.length)} items</span>

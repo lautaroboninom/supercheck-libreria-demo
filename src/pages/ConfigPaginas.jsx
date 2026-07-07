@@ -52,7 +52,7 @@ function ensureSettingsShape(value) {
   const row = value || {};
   return {
     app_name: row.app_name || 'SuperCheck',
-    app_tagline: row.app_tagline || 'Gestion de caja y stock',
+    app_tagline: row.app_tagline || 'Gestion de caja, stock y pedidos',
     footer_legal_name: row.footer_legal_name || 'SuperCheck',
     sidebar_section_title: row.sidebar_section_title || 'Operaciones',
     default_route: row.default_route || '/pos',
@@ -75,10 +75,10 @@ export default function ConfigPaginas() {
       const row = await getRetailConfigPageSettings();
       const next = ensureSettingsShape(row);
       setSettings(next);
-      window.localStorage.setItem('supermercado_pos_default_route', next.default_route || '/pos');
-      window.localStorage.setItem('supermercado_pos_app_name', next.app_name || 'SuperCheck');
-      window.localStorage.setItem('supermercado_pos_app_tagline', next.app_tagline || 'Gestion de caja y stock');
-      window.localStorage.setItem('supermercado_pos_footer_legal_name', next.footer_legal_name || 'SuperCheck');
+      window.localStorage.setItem('libreria_pos_default_route', next.default_route || '/pos');
+      window.localStorage.setItem('libreria_pos_app_name', next.app_name || 'SuperCheck');
+      window.localStorage.setItem('libreria_pos_app_tagline', next.app_tagline || 'Gestion de caja, stock y pedidos');
+      window.localStorage.setItem('libreria_pos_footer_legal_name', next.footer_legal_name || 'SuperCheck');
     } catch (error) {
       setErr(errMsg(error));
     } finally {
@@ -108,10 +108,10 @@ export default function ConfigPaginas() {
       const row = await putRetailConfigPageSettings(payload);
       const next = ensureSettingsShape(row);
       setSettings(next);
-      window.localStorage.setItem('supermercado_pos_default_route', next.default_route || '/pos');
-      window.localStorage.setItem('supermercado_pos_app_name', next.app_name || 'SuperCheck');
-      window.localStorage.setItem('supermercado_pos_app_tagline', next.app_tagline || 'Gestion de caja y stock');
-      window.localStorage.setItem('supermercado_pos_footer_legal_name', next.footer_legal_name || 'SuperCheck');
+      window.localStorage.setItem('libreria_pos_default_route', next.default_route || '/pos');
+      window.localStorage.setItem('libreria_pos_app_name', next.app_name || 'SuperCheck');
+      window.localStorage.setItem('libreria_pos_app_tagline', next.app_tagline || 'Gestion de caja, stock y pedidos');
+      window.localStorage.setItem('libreria_pos_footer_legal_name', next.footer_legal_name || 'SuperCheck');
       setMsg('Configuración de páginas actualizada');
     } catch (error) {
       setErr(errMsg(error));

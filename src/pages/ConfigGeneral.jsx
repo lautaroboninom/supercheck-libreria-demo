@@ -1066,7 +1066,7 @@ export default function ConfigGeneral() {
                         placeholder={
                           account?.arca_cert_path_configured
                             ? `Ruta actual: ${account?.arca_cert_path_masked || 'configurada'}`
-                            : 'Ej: C:/certificados/supermercado/arca.pem'
+                            : 'Ej: C:/certificados/libreria/arca.pem'
                         }
                         value={account.arca_cert_path || ''}
                         disabled={!canEditOnlineCredentials}
@@ -1080,7 +1080,7 @@ export default function ConfigGeneral() {
                         placeholder={
                           account?.arca_key_path_configured
                             ? `Ruta actual: ${account?.arca_key_path_masked || 'configurada'}`
-                            : 'Ej: C:/certificados/supermercado/arca.key'
+                            : 'Ej: C:/certificados/libreria/arca.key'
                         }
                         value={account.arca_key_path || ''}
                         disabled={!canEditOnlineCredentials}

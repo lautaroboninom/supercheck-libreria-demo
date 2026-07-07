@@ -1,5 +1,5 @@
 ﻿param(
-  [string]$Source = "web/public/branding/supermercado-pos-mark.png"
+  [string]$Source = "public/branding/logo-app.png"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,7 +8,7 @@ if (-not (Test-Path $Source)) {
   Write-Error "No se encontro la imagen de origen: $Source. Copia el logo PNG y pasa -Source si usas otra ruta."
 }
 
-$outDir = Join-Path 'web/public' 'icons'
+$outDir = Join-Path 'public' 'icons'
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
 
 Add-Type -AssemblyName System.Drawing

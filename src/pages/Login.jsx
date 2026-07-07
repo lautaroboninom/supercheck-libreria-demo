@@ -13,14 +13,14 @@ export default function Login() {
   const [backendOk, setBackendOk] = useState(true);
 
   const appName =
-    window.localStorage.getItem('supermercado_pos_app_name') ||
+    window.localStorage.getItem('libreria_pos_app_name') ||
     import.meta.env.VITE_APP_NAME ||
     'SuperCheck';
   const appTagline =
-    window.localStorage.getItem('supermercado_pos_app_tagline') ||
-    'Gestion de caja y stock';
+    window.localStorage.getItem('libreria_pos_app_tagline') ||
+    'Gestion de caja, stock y pedidos';
   const footerName =
-    window.localStorage.getItem('supermercado_pos_footer_legal_name') ||
+    window.localStorage.getItem('libreria_pos_footer_legal_name') ||
     import.meta.env.VITE_COMPANY_LEGAL ||
     appName;
 
@@ -84,7 +84,7 @@ export default function Login() {
               </div>
               <h1 className="text-3xl font-bold leading-tight">{appName}</h1>
               <p className="max-w-md text-sm leading-relaxed text-neutral-300">
-                Caja agil, stock confiable por producto y operacion preparada para supermercado.
+                Caja agil, stock confiable por producto y operacion preparada para librería.
               </p>
             </div>
             <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-neutral-200">

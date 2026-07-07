@@ -365,7 +365,7 @@ export default function ReportesPage() {
   return (
     <div className="space-y-4">
       <div className="card">
-        <h1 className="h1">Reportes supermercado</h1>
+        <h1 className="h1">Reportes librería</h1>
         <p className="text-sm text-gray-600">
           Vista ejecutiva para decidir rapido por producto y proveedor, sin perder detalle operativo.
         </p>

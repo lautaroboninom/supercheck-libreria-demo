@@ -27,7 +27,7 @@ import { PERMISSION_CODES } from './lib/permissions';
 
 function resolveInitialRoute() {
   const saved =
-    window.localStorage.getItem('supermercado_pos_default_route') ||
+    window.localStorage.getItem('libreria_pos_default_route') ||
     '/pos';
   const allowed = new Set([
     '/pos',

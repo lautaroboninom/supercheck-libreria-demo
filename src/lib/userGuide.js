@@ -257,7 +257,7 @@ export const DAILY_FLOW = [
   },
 ];
 
-export const FIRST_RUN_STORAGE_KEY = `supermercado_pos_user_guide_seen_${USER_GUIDE_VERSION}`;
+export const FIRST_RUN_STORAGE_KEY = `libreria_pos_user_guide_seen_${USER_GUIDE_VERSION}`;
 
 export function getRouteGuide(pathname) {
   const path = String(pathname || '');

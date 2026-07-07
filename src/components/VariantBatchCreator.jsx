@@ -58,7 +58,7 @@ function inputMoney(value, fallback = '') {
   return String(value);
 }
 
-const BARCODE_PRINT_PREFS_KEY = 'supermercado_pos_barcode_print_prefs_v1';
+const BARCODE_PRINT_PREFS_KEY = 'libreria_pos_barcode_print_prefs_v1';
 const PRINT_LAYOUTS = {
   A4: 'a4_grid',
   THERMAL: 'thermal_custom',

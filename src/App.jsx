@@ -44,7 +44,7 @@ export default function App() {
   const [updateMessage, setUpdateMessage] = useState('');
   const [showUpdateNotice, setShowUpdateNotice] = useState(false);
   const [showGuideWelcome, setShowGuideWelcome] = useState(false);
-  const updateNoticeStorageKey = UPDATE_NOTICE?.id ? `supermercado_pos_update_notice_seen_${UPDATE_NOTICE.id}` : '';
+  const updateNoticeStorageKey = UPDATE_NOTICE?.id ? `libreria_pos_update_notice_seen_${UPDATE_NOTICE.id}` : '';
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -83,7 +83,7 @@ export default function App() {
         const next = mergePageSettings(row);
         setPageSettings(next);
         if (next.default_route) {
-          window.localStorage.setItem('supermercado_pos_default_route', next.default_route);
+          window.localStorage.setItem('libreria_pos_default_route', next.default_route);
         }
       } catch {
         if (active) {
@@ -312,7 +312,7 @@ export default function App() {
 
           <Link to="/pos" className="flex items-center gap-2.5">
             <img
-              src="/branding/supermercado-pos-mark.svg"
+              src="/branding/libreria-pos-mark.svg"
               alt={appName}
               className="hidden h-9 w-auto rounded-lg border border-neutral-200 object-contain sm:block"
             />

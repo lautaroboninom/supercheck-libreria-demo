@@ -280,7 +280,7 @@ export default function PosPage() {
   const [closingIncidentTitle, setClosingIncidentTitle] = useState('');
   const [closingIncidentDetail, setClosingIncidentDetail] = useState('');
   const [quickMode, setQuickMode] = useState(() => {
-    const current = window.localStorage.getItem('supermercado_pos_quick_mode');
+    const current = window.localStorage.getItem('libreria_pos_quick_mode');
     return current !== '0';
   });
 
@@ -953,7 +953,7 @@ export default function PosPage() {
   }, [busy]);
 
   useEffect(() => {
-    window.localStorage.setItem('supermercado_pos_quick_mode', quickMode ? '1' : '0');
+    window.localStorage.setItem('libreria_pos_quick_mode', quickMode ? '1' : '0');
   }, [quickMode]);
 
   useEffect(() => {
