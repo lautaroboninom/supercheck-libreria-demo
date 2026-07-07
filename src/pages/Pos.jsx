@@ -294,6 +294,9 @@ export default function PosPage() {
 
   const [recentSales, setRecentSales] = useState([]);
   const [recentLoading, setRecentLoading] = useState(false);
+  const [clientNotesOpen, setClientNotesOpen] = useState(false);
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [salesHistoryOpen, setSalesHistoryOpen] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [quoteBusy, setQuoteBusy] = useState(false);
@@ -1565,6 +1568,13 @@ export default function PosPage() {
           <div className="flex flex-wrap gap-2 text-xs">
             <button
               type="button"
+              className="rounded-full border border-neutral-300 bg-white px-2.5 py-1 font-semibold text-neutral-700 hover:bg-neutral-100"
+              onClick={() => setSalesHistoryOpen((open) => !open)}
+            >
+              Historial de ventas
+            </button>
+            <button
+              type="button"
               className={`rounded-full border px-2.5 py-1 font-semibold ${
                 quickMode
                   ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
@@ -1673,6 +1683,44 @@ export default function PosPage() {
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+      {salesHistoryOpen ? (
+        <div className="fixed inset-0 z-40 flex items-start justify-end bg-black/30 p-4 pt-20">
+          <section className="w-full max-w-md rounded-lg border border-neutral-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
+              <h2 className="text-lg font-semibold">Historial de ventas</h2>
+              <button
+                type="button"
+                className="rounded border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-100"
+                onClick={() => setSalesHistoryOpen(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="space-y-2 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-neutral-600">Ventas recientes de hoy</p>
+                <button type="button" className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={loadRecentSales}>
+                  Refrescar
+                </button>
+              </div>
+              {recentLoading ? (
+                <p className="text-sm text-gray-500">Cargando ventas...</p>
+              ) : recentSales.length ? (
+                <div className="max-h-[60vh] space-y-1 overflow-auto text-sm">
+                  {recentSales.map((row) => (
+                    <div key={row.id} className="flex items-center justify-between rounded border border-neutral-200 px-2 py-1.5">
+                      <span className="truncate">{row.sale_number || `#${row.id}`}</span>
+                      <strong>{money(row.total_ars)}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Sin ventas registradas hoy.</p>
+              )}
+            </div>
+          </section>
         </div>
       ) : null}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
@@ -1836,342 +1884,140 @@ export default function PosPage() {
             )}
           </div>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <div className="card space-y-3">
-              <h2 className="text-lg font-semibold">Cobro</h2>
-              <div>
-                <label className="label">Medio de pago base (pricing)</label>
-                <select
-                  className="input"
-                  value={paymentMethod}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setPaymentMethod(next);
-                    setPaymentAccountCode(defaultAccountCode(next, accounts));
-                    if (next !== 'store_credit') {
-                      setSelectedStoreCreditId('');
-                    }
-                    setQuote(null);
-                  }}
-                >
-                  {PAYMENT_OPTIONS.map((op) => (
-                    <option key={op.value} value={op.value}>
-                      {op.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">Cuenta / caja base</label>
-                <select
-                  className="input"
-                  value={paymentAccountCode}
-                  onChange={(e) => setPaymentAccountCode(e.target.value)}
-                >
-                  {filteredAccounts.map((op) => (
-                    <option key={op.code} value={op.code}>
-                      {op.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {paymentMethod === 'store_credit' ? (
-                <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
-                  <div className="flex flex-wrap items-end gap-2">
-                    <button
-                      type="button"
-                      className="btn-secondary !py-2"
-                      onClick={loadStoreCreditsByDoc}
-                      disabled={storeCreditsLoading}
-                    >
-                      {storeCreditsLoading ? 'Buscando...' : 'Buscar creditos por DNI/CUIT'}
-                    </button>
-                    <span className="text-xs text-neutral-500">
-                      Doc cliente: <strong>{normalizeDocDigits(customerDoc) || '-'}</strong>
-                    </span>
-                  </div>
-                  <select
-                    className="input"
-                    value={selectedStoreCreditId}
-                    onChange={(e) => setSelectedStoreCreditId(e.target.value)}
-                  >
-                    <option value="">Seleccionar credito tienda</option>
-                    {storeCredits.map((row) => (
-                      <option key={`base-credit-${row.id}`} value={String(row.id)}>
-                        #{row.id} | saldo {money(row.amount_balance_ars)} | {row.customer_name || row.customer_doc || 'cliente'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-              {!splitPaymentsEnabled && paymentMethod === 'cash' ? (
-                <div className="grid grid-cols-1 gap-2 rounded-lg border border-neutral-200 p-2 md:grid-cols-3">
-                  <label className="block md:col-span-1">
-                    <span className="label">Recibido</span>
+            <section className="card space-y-3">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 text-left"
+                onClick={() => setClientNotesOpen((open) => !open)}
+                aria-expanded={clientNotesOpen}
+              >
+                <span>
+                  <span className="block text-lg font-semibold">Cliente y notas</span>
+                  <span className="block text-xs text-neutral-500">
+                    {customerName || customerDoc || notes || couponCodes ? 'Datos cargados' : 'Sin datos de cliente'}
+                  </span>
+                </span>
+                <span className="rounded border border-neutral-300 px-2 py-1 text-xs font-semibold">
+                  {clientNotesOpen ? 'Ocultar' : 'Mostrar'}
+                </span>
+              </button>
+              {clientNotesOpen ? (
+                <div className="space-y-3 border-t border-neutral-200 pt-3">
+                  {anyOverride ? (
                     <input
                       className="input"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={cashReceived}
-                      onChange={(e) => setCashReceived(e.target.value)}
+                      value={priceOverrideReason}
+                      onChange={(e) => setPriceOverrideReason(e.target.value)}
+                      placeholder="Motivo override precio (obligatorio)"
                     />
-                  </label>
-                  <div className="rounded border border-neutral-200 bg-neutral-50 p-2 text-sm">
-                    <div>Total</div>
-                    <strong>{money(totalDue)}</strong>
-                  </div>
-                  <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-800">
-                    <div>Vuelto</div>
-                    <strong>{money(cashChange)}</strong>
-                  </div>
+                  ) : null}
+                  <input
+                    className="input"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="Cliente (opcional)"
+                  />
+                  <input
+                    className="input"
+                    value={customerDoc}
+                    onChange={(e) => setCustomerDoc(e.target.value)}
+                    placeholder="Documento (opcional)"
+                  />
+                  <input
+                    className="input"
+                    value={couponCodes}
+                    onChange={(e) => setCouponCodes(e.target.value)}
+                    placeholder="Cupon(es), separados por coma"
+                  />
+                  <textarea
+                    className="input"
+                    rows={2}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Notas"
+                  />
                 </div>
               ) : null}
+            </section>
 
-              <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
-                <input
-                  type="checkbox"
-                  checked={splitPaymentsEnabled}
-                  onChange={(e) => setSplitPaymentsEnabled(e.target.checked)}
-                />
-                Pago mixto (split tender)
-              </label>
-
-              {splitPaymentsEnabled ? (
-                <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
-                  {splitPayments.map((row, idx) => {
-                    const scopedAccounts = accountsByMethod(row.method || paymentMethod);
-                    return (
-                      <div key={`split-${idx}`} className="grid grid-cols-1 gap-2 md:grid-cols-8">
-                        <select
-                          className="input md:col-span-2"
-                          value={row.method}
-                          onChange={(e) =>
-                            changeSplitRow(idx, {
-                              method: e.target.value,
-                              account_code: defaultAccountCode(e.target.value, accounts),
-                              modifier_pct: String(
-                                accountModifierPct(defaultAccountCode(e.target.value, accounts), accounts)
-                              ),
-                            })
-                          }
-                        >
-                          {PAYMENT_OPTIONS.map((op) => (
-                            <option key={op.value} value={op.value}>
-                              {op.label}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          className="input md:col-span-2"
-                          value={row.account_code}
-                          onChange={(e) =>
-                            changeSplitRow(idx, {
-                              account_code: e.target.value,
-                              modifier_pct: String(accountModifierPct(e.target.value, accounts)),
-                            })
-                          }
-                        >
-                          {scopedAccounts.map((acc) => (
-                            <option key={`${idx}-${acc.code}`} value={acc.code}>
-                              {acc.label}
-                            </option>
-                          ))}
-                        </select>
-                        {row.method === 'store_credit' ? (
-                          <select
-                            className="input md:col-span-2"
-                            value={row.store_credit_id || ''}
-                            onChange={(e) => changeSplitRow(idx, { store_credit_id: e.target.value })}
-                          >
-                            <option value="">Seleccionar credito</option>
-                            {storeCredits.map((credit) => (
-                              <option key={`split-credit-${idx}-${credit.id}`} value={String(credit.id)}>
-                                #{credit.id} | saldo {money(credit.amount_balance_ars)}
-                              </option>
-                            ))}
-                          </select>
-                        ) : null}
-                        <input
-                          className="input"
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder="Monto base"
-                          value={row.amount_ars}
-                          onChange={(e) => changeSplitRow(idx, { amount_ars: e.target.value })}
-                        />
-                        {isAdmin ? (
-                          <input
-                            className="input"
-                            type="number"
-                            step="0.01"
-                            min="-99.99"
-                            placeholder="% ajuste"
-                            value={row.modifier_pct ?? ''}
-                            onChange={(e) => changeSplitRow(idx, { modifier_pct: e.target.value })}
-                          />
-                        ) : null}
-                        <button
-                          type="button"
-                          className="rounded border border-neutral-300 px-2 py-1 text-xs"
-                          onClick={() => removeSplitRow(idx)}
-                          disabled={splitPayments.length <= 1}
-                        >
-                          Quitar
-                        </button>
-                      </div>
-                    );
-                  })}
-                  <div className="flex flex-wrap items-center gap-2">
+            <section className="card space-y-3">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 text-left"
+                onClick={() => setDraftsOpen((open) => !open)}
+                aria-expanded={draftsOpen}
+              >
+                <span>
+                  <span className="block text-lg font-semibold">Borradores en espera</span>
+                  <span className="block text-xs text-neutral-500">
+                    {selectedDraft ? `Activo: ${selectedDraft.draft_number}` : `${drafts.length} abiertos`}
+                  </span>
+                </span>
+                <span className="rounded border border-neutral-300 px-2 py-1 text-xs font-semibold">
+                  {draftsOpen ? 'Ocultar' : 'Mostrar'}
+                </span>
+              </button>
+              {draftsOpen ? (
+                <div className="space-y-3 border-t border-neutral-200 pt-3">
+                  <input
+                    className="input"
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    placeholder="Nombre borrador (ej: Cliente en probador)"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" className="btn-secondary" onClick={handleSaveDraft} disabled={busy || !items.length}>
+                      Guardar nuevo
+                    </button>
                     <button
                       type="button"
-                      className="btn-secondary !py-2"
-                      onClick={loadStoreCreditsByDoc}
-                      disabled={storeCreditsLoading}
+                      className="btn-secondary"
+                      onClick={handleUpdateDraft}
+                      disabled={busy || !items.length || !selectedDraftId}
                     >
-                      {storeCreditsLoading ? 'Buscando...' : 'Actualizar creditos por DNI/CUIT'}
+                      Actualizar actual
                     </button>
-                    <span className="text-xs text-neutral-500">
-                      Disponibles: <strong>{storeCredits.length}</strong>
-                    </span>
                   </div>
-                  <button type="button" className="btn-secondary !py-2" onClick={addSplitRow}>
-                    Agregar tramo
+                  <button type="button" className="btn-secondary !py-2" onClick={loadDrafts} disabled={draftsLoading}>
+                    {draftsLoading ? 'Actualizando...' : 'Refrescar borradores'}
                   </button>
-                  <div className="rounded border border-dashed px-2 py-1 text-xs">
-                    <div>
-                      Suma base tramos: <strong>{money(splitTotals.current)}</strong>
-                    </div>
-                    <div>
-                      Subtotal base: <strong>{money(splitTotals.expected)}</strong>
-                    </div>
-                    <div className={splitTotals.diff === 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                      Diferencia: <strong>{money(splitTotals.diff)}</strong>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </div>
 
-            <div className="card space-y-3">
-              <h2 className="text-lg font-semibold">Cliente y notas</h2>
-              {anyOverride ? (
-                <input
-                  className="input"
-                  value={priceOverrideReason}
-                  onChange={(e) => setPriceOverrideReason(e.target.value)}
-                  placeholder="Motivo override precio (obligatorio)"
-                />
-              ) : null}
-              <input
-                className="input"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Cliente (opcional)"
-              />
-              <input
-                className="input"
-                value={customerDoc}
-                onChange={(e) => setCustomerDoc(e.target.value)}
-                placeholder="Documento (opcional)"
-              />
-              <input
-                className="input"
-                value={couponCodes}
-                onChange={(e) => setCouponCodes(e.target.value)}
-                placeholder="Cupon(es), separados por coma"
-              />
-              <textarea
-                className="input"
-                rows={2}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Notas"
-              />
-            </div>
-
-            <div className="card space-y-3">
-              <h2 className="text-lg font-semibold">Borradores en espera</h2>
-              <input
-                className="input"
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                placeholder="Nombre borrador (ej: Cliente en probador)"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" className="btn-secondary" onClick={handleSaveDraft} disabled={busy || !items.length}>
-                  Guardar nuevo
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={handleUpdateDraft}
-                  disabled={busy || !items.length || !selectedDraftId}
-                >
-                  Actualizar actual
-                </button>
-              </div>
-              <button type="button" className="btn-secondary !py-2" onClick={loadDrafts} disabled={draftsLoading}>
-                {draftsLoading ? 'Actualizando...' : 'Refrescar borradores'}
-              </button>
-
-              <div className="max-h-64 overflow-auto rounded-lg border border-neutral-200">
-                {!drafts.length ? (
-                  <p className="px-3 py-2 text-sm text-gray-500">No hay borradores abiertos.</p>
-                ) : (
-                  <div className="divide-y">
-                    {drafts.map((row) => (
-                      <div
-                        key={row.id}
-                        className={`flex items-center justify-between gap-2 px-3 py-2 ${
-                          Number(row.id) === Number(selectedDraftId) ? 'bg-amber-50' : ''
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">
-                            {row.name || row.draft_number || `#${row.id}`}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {row.item_count || 0} items | {money(row.total_ars)}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          className="btn-secondary !px-2.5 !py-1.5 !text-xs"
-                          onClick={() => handleLoadDraft(row.id)}
-                          disabled={busy}
-                        >
-                          Cargar
-                        </button>
+                  <div className="max-h-64 overflow-auto rounded-lg border border-neutral-200">
+                    {!drafts.length ? (
+                      <p className="px-3 py-2 text-sm text-gray-500">No hay borradores abiertos.</p>
+                    ) : (
+                      <div className="divide-y">
+                        {drafts.map((row) => (
+                          <div
+                            key={row.id}
+                            className={`flex items-center justify-between gap-2 px-3 py-2 ${
+                              Number(row.id) === Number(selectedDraftId) ? 'bg-amber-50' : ''
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">
+                                {row.name || row.draft_number || `#${row.id}`}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {row.item_count || 0} items | {money(row.total_ars)}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn-secondary !px-2.5 !py-1.5 !text-xs"
+                              onClick={() => handleLoadDraft(row.id)}
+                              disabled={busy}
+                            >
+                              Cargar
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
-
-            <div className="card space-y-2">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Ventas recientes (hoy)</h2>
-                <button type="button" className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={loadRecentSales}>
-                  Refrescar
-                </button>
-              </div>
-              {recentLoading ? (
-                <p className="text-sm text-gray-500">Cargando ventas...</p>
-              ) : recentSales.length ? (
-                <div className="space-y-1 text-sm">
-                  {recentSales.map((row) => (
-                    <div key={row.id} className="flex items-center justify-between rounded border border-neutral-200 px-2 py-1.5">
-                      <span className="truncate">{row.sale_number || `#${row.id}`}</span>
-                      <strong>{money(row.total_ars)}</strong>
-                    </div>
-                  ))}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500">Sin ventas registradas hoy.</p>
-              )}
-            </div>
+              ) : null}
+            </section>
           </div>
         </div>
         <div className="space-y-4">
@@ -2287,6 +2133,223 @@ export default function PosPage() {
                 )}
               </div>
             </div>
+          </div>
+
+          <div className="card space-y-3">
+            <h2 className="text-lg font-semibold">Cobro</h2>
+            <div>
+              <label className="label">Medio de pago base (pricing)</label>
+              <select
+                className="input"
+                value={paymentMethod}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setPaymentMethod(next);
+                  setPaymentAccountCode(defaultAccountCode(next, accounts));
+                  if (next !== 'store_credit') {
+                    setSelectedStoreCreditId('');
+                  }
+                  setQuote(null);
+                }}
+              >
+                {PAYMENT_OPTIONS.map((op) => (
+                  <option key={op.value} value={op.value}>
+                    {op.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Cuenta / caja base</label>
+              <select
+                className="input"
+                value={paymentAccountCode}
+                onChange={(e) => setPaymentAccountCode(e.target.value)}
+              >
+                {filteredAccounts.map((op) => (
+                  <option key={op.code} value={op.code}>
+                    {op.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {paymentMethod === 'store_credit' ? (
+              <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
+                <div className="flex flex-wrap items-end gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary !py-2"
+                    onClick={loadStoreCreditsByDoc}
+                    disabled={storeCreditsLoading}
+                  >
+                    {storeCreditsLoading ? 'Buscando...' : 'Buscar creditos por DNI/CUIT'}
+                  </button>
+                  <span className="text-xs text-neutral-500">
+                    Doc cliente: <strong>{normalizeDocDigits(customerDoc) || '-'}</strong>
+                  </span>
+                </div>
+                <select
+                  className="input"
+                  value={selectedStoreCreditId}
+                  onChange={(e) => setSelectedStoreCreditId(e.target.value)}
+                >
+                  <option value="">Seleccionar credito tienda</option>
+                  {storeCredits.map((row) => (
+                    <option key={`base-credit-${row.id}`} value={String(row.id)}>
+                      #{row.id} | saldo {money(row.amount_balance_ars)} | {row.customer_name || row.customer_doc || 'cliente'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {!splitPaymentsEnabled && paymentMethod === 'cash' ? (
+              <div className="grid grid-cols-1 gap-2 rounded-lg border border-neutral-200 p-2 md:grid-cols-3">
+                <label className="block md:col-span-1">
+                  <span className="label">Recibido</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value)}
+                  />
+                </label>
+                <div className="rounded border border-neutral-200 bg-neutral-50 p-2 text-sm">
+                  <div>Total</div>
+                  <strong>{money(totalDue)}</strong>
+                </div>
+                <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-800">
+                  <div>Vuelto</div>
+                  <strong>{money(cashChange)}</strong>
+                </div>
+              </div>
+            ) : null}
+
+            <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="checkbox"
+                checked={splitPaymentsEnabled}
+                onChange={(e) => setSplitPaymentsEnabled(e.target.checked)}
+              />
+              Pago mixto (split tender)
+            </label>
+
+            {splitPaymentsEnabled ? (
+              <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
+                {splitPayments.map((row, idx) => {
+                  const scopedAccounts = accountsByMethod(row.method || paymentMethod);
+                  return (
+                    <div key={`split-${idx}`} className="grid grid-cols-1 gap-2">
+                      <select
+                        className="input"
+                        value={row.method}
+                        onChange={(e) =>
+                          changeSplitRow(idx, {
+                            method: e.target.value,
+                            account_code: defaultAccountCode(e.target.value, accounts),
+                            modifier_pct: String(
+                              accountModifierPct(defaultAccountCode(e.target.value, accounts), accounts)
+                            ),
+                          })
+                        }
+                      >
+                        {PAYMENT_OPTIONS.map((op) => (
+                          <option key={op.value} value={op.value}>
+                            {op.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="input"
+                        value={row.account_code}
+                        onChange={(e) =>
+                          changeSplitRow(idx, {
+                            account_code: e.target.value,
+                            modifier_pct: String(accountModifierPct(e.target.value, accounts)),
+                          })
+                        }
+                      >
+                        {scopedAccounts.map((acc) => (
+                          <option key={`${idx}-${acc.code}`} value={acc.code}>
+                            {acc.label}
+                          </option>
+                        ))}
+                      </select>
+                      {row.method === 'store_credit' ? (
+                        <select
+                          className="input"
+                          value={row.store_credit_id || ''}
+                          onChange={(e) => changeSplitRow(idx, { store_credit_id: e.target.value })}
+                        >
+                          <option value="">Seleccionar credito</option>
+                          {storeCredits.map((credit) => (
+                            <option key={`split-credit-${idx}-${credit.id}`} value={String(credit.id)}>
+                              #{credit.id} | saldo {money(credit.amount_balance_ars)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                      <input
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="Monto base"
+                        value={row.amount_ars}
+                        onChange={(e) => changeSplitRow(idx, { amount_ars: e.target.value })}
+                      />
+                      {isAdmin ? (
+                        <input
+                          className="input"
+                          type="number"
+                          step="0.01"
+                          min="-99.99"
+                          placeholder="% ajuste"
+                          value={row.modifier_pct ?? ''}
+                          onChange={(e) => changeSplitRow(idx, { modifier_pct: e.target.value })}
+                        />
+                      ) : null}
+                      <button
+                        type="button"
+                        className="rounded border border-neutral-300 px-2 py-1 text-xs"
+                        onClick={() => removeSplitRow(idx)}
+                        disabled={splitPayments.length <= 1}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary !py-2"
+                    onClick={loadStoreCreditsByDoc}
+                    disabled={storeCreditsLoading}
+                  >
+                    {storeCreditsLoading ? 'Buscando...' : 'Actualizar creditos por DNI/CUIT'}
+                  </button>
+                  <span className="text-xs text-neutral-500">
+                    Disponibles: <strong>{storeCredits.length}</strong>
+                  </span>
+                </div>
+                <button type="button" className="btn-secondary !py-2" onClick={addSplitRow}>
+                  Agregar tramo
+                </button>
+                <div className="rounded border border-dashed px-2 py-1 text-xs">
+                  <div>
+                    Suma base tramos: <strong>{money(splitTotals.current)}</strong>
+                  </div>
+                  <div>
+                    Subtotal base: <strong>{money(splitTotals.expected)}</strong>
+                  </div>
+                  <div className={splitTotals.diff === 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                    Diferencia: <strong>{money(splitTotals.diff)}</strong>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="xl:sticky xl:top-20 xl:self-start">
