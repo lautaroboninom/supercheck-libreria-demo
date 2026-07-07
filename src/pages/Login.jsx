@@ -15,7 +15,7 @@ export default function Login() {
   const appName =
     window.localStorage.getItem('libreria_pos_app_name') ||
     import.meta.env.VITE_APP_NAME ||
-    'SuperCheck';
+    'SuperCheck Librería';
   const appTagline =
     window.localStorage.getItem('libreria_pos_app_tagline') ||
     'Gestion de caja, stock y pedidos';

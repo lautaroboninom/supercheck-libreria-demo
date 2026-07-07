@@ -1,6 +1,6 @@
 // Minimal service worker for installability + basic offline fallback
-// El valor 0.1.0-24b8dee-dirty-20260707130727016 será reemplazado en prebuild por scripts/build-sw.mjs
-const CACHE_NAME = 'libreria-pos-cache-0.1.0-24b8dee-dirty-20260707130727016';
+// El valor 0.1.0-a6e4ea5-dirty-20260707190658870 será reemplazado en prebuild por scripts/build-sw.mjs
+const CACHE_NAME = 'libreria-pos-cache-0.1.0-a6e4ea5-dirty-20260707190658870';
 const URLS_TO_CACHE = ['/', '/index.html'];
 
 self.addEventListener('install', (event) => {

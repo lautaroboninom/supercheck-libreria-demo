@@ -51,9 +51,9 @@ const DEFAULT_ROUTES = [
 function ensureSettingsShape(value) {
   const row = value || {};
   return {
-    app_name: row.app_name || 'SuperCheck',
+    app_name: row.app_name || 'SuperCheck Librería',
     app_tagline: row.app_tagline || 'Gestion de caja, stock y pedidos',
-    footer_legal_name: row.footer_legal_name || 'SuperCheck',
+    footer_legal_name: row.footer_legal_name || 'SuperCheck Librería',
     sidebar_section_title: row.sidebar_section_title || 'Operaciones',
     default_route: row.default_route || '/pos',
     nav_labels: row.nav_labels || {},
@@ -76,9 +76,9 @@ export default function ConfigPaginas() {
       const next = ensureSettingsShape(row);
       setSettings(next);
       window.localStorage.setItem('libreria_pos_default_route', next.default_route || '/pos');
-      window.localStorage.setItem('libreria_pos_app_name', next.app_name || 'SuperCheck');
+      window.localStorage.setItem('libreria_pos_app_name', next.app_name || 'SuperCheck Librería');
       window.localStorage.setItem('libreria_pos_app_tagline', next.app_tagline || 'Gestion de caja, stock y pedidos');
-      window.localStorage.setItem('libreria_pos_footer_legal_name', next.footer_legal_name || 'SuperCheck');
+      window.localStorage.setItem('libreria_pos_footer_legal_name', next.footer_legal_name || 'SuperCheck Librería');
     } catch (error) {
       setErr(errMsg(error));
     } finally {
@@ -109,9 +109,9 @@ export default function ConfigPaginas() {
       const next = ensureSettingsShape(row);
       setSettings(next);
       window.localStorage.setItem('libreria_pos_default_route', next.default_route || '/pos');
-      window.localStorage.setItem('libreria_pos_app_name', next.app_name || 'SuperCheck');
+      window.localStorage.setItem('libreria_pos_app_name', next.app_name || 'SuperCheck Librería');
       window.localStorage.setItem('libreria_pos_app_tagline', next.app_tagline || 'Gestion de caja, stock y pedidos');
-      window.localStorage.setItem('libreria_pos_footer_legal_name', next.footer_legal_name || 'SuperCheck');
+      window.localStorage.setItem('libreria_pos_footer_legal_name', next.footer_legal_name || 'SuperCheck Librería');
       setMsg('Configuración de páginas actualizada');
     } catch (error) {
       setErr(errMsg(error));

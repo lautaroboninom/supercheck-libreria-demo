@@ -64,7 +64,8 @@ function makeError(status, message, data = null) {
 }
 
 export function isDemoMode() {
-  const envEnabled = import.meta.env.VITE_DEMO_MODE === '1' || import.meta.env.VITE_DEMO_MODE === 'true';
+  const envValue = String(import.meta.env.VITE_DEMO_MODE ?? '1').toLowerCase();
+  const envEnabled = !['0', 'false', 'no', 'off'].includes(envValue);
   try {
     const params = new URLSearchParams(window.location.search || '');
     if (params.get('demo') === '1') {
