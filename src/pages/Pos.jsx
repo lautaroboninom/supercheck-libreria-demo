@@ -10,7 +10,6 @@ import {
   getRetailPosDrafts,
   getRetailVarianteByScan,
   getRetailVariantes,
-  getRetailVentas,
   patchRetailPosDraft,
   postRetailCajaApertura,
   postRetailCajaCierre,
@@ -210,10 +209,6 @@ function formatQty(value) {
   return n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export default function PosPage() {
   const { user } = useAuth();
   const isAdmin = String(user?.rol || '').toLowerCase() === 'admin';
@@ -280,7 +275,7 @@ export default function PosPage() {
   const [closingIncidentTitle, setClosingIncidentTitle] = useState('');
   const [closingIncidentDetail, setClosingIncidentDetail] = useState('');
   const [quickMode, setQuickMode] = useState(() => {
-    const current = window.localStorage.getItem('libreria_pos_quick_mode');
+    const current = window.localStorage.getItem('supermercado_pos_quick_mode');
     return current !== '0';
   });
 
@@ -288,15 +283,14 @@ export default function PosPage() {
   const [selectedDraftId, setSelectedDraftId] = useState(null);
   const [draftName, setDraftName] = useState('');
   const [draftsLoading, setDraftsLoading] = useState(false);
+  const [customerPanelOpen, setCustomerPanelOpen] = useState(false);
+  const [draftsPanelOpen, setDraftsPanelOpen] = useState(false);
+  const [totalsDetailOpen, setTotalsDetailOpen] = useState(false);
+  const [cajaPanelOpen, setCajaPanelOpen] = useState(true);
+  const cajaWasOpenRef = useRef(false);
   const [pendingRows, setPendingRows] = useState([]);
   const [pendingSummary, setPendingSummary] = useState(null);
   const [pendingLoading, setPendingLoading] = useState(false);
-
-  const [recentSales, setRecentSales] = useState([]);
-  const [recentLoading, setRecentLoading] = useState(false);
-  const [clientNotesOpen, setClientNotesOpen] = useState(false);
-  const [draftsOpen, setDraftsOpen] = useState(false);
-  const [salesHistoryOpen, setSalesHistoryOpen] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [quoteBusy, setQuoteBusy] = useState(false);
@@ -886,25 +880,6 @@ export default function PosPage() {
     }
   }
 
-  async function loadRecentSales() {
-    setRecentLoading(true);
-    try {
-      const day = todayIso();
-      const resp = await getRetailVentas({
-        desde: day,
-        hasta: day,
-        channel: 'local',
-        limit: 8,
-        offset: 0,
-      });
-      setRecentSales(Array.isArray(resp?.rows) ? resp.rows : []);
-    } catch {
-      setRecentSales([]);
-    } finally {
-      setRecentLoading(false);
-    }
-  }
-
   async function loadOperationalPending() {
     setPendingLoading(true);
     try {
@@ -947,7 +922,6 @@ export default function PosPage() {
     loadAccounts();
     loadArcaAccounts();
     loadDrafts();
-    loadRecentSales();
     loadOperationalPending();
   }, []);
 
@@ -956,8 +930,22 @@ export default function PosPage() {
   }, [busy]);
 
   useEffect(() => {
-    window.localStorage.setItem('libreria_pos_quick_mode', quickMode ? '1' : '0');
+    window.localStorage.setItem('supermercado_pos_quick_mode', quickMode ? '1' : '0');
   }, [quickMode]);
+
+  useEffect(() => {
+    if (!msg) return undefined;
+    const timer = window.setTimeout(() => setMsg(''), 4000);
+    return () => window.clearTimeout(timer);
+  }, [msg]);
+
+  useEffect(() => {
+    const isOpenNow = Boolean(cashSession);
+    if (isOpenNow === cajaWasOpenRef.current) return;
+    cajaWasOpenRef.current = isOpenNow;
+    // Caja recien abierta/cerrada: colapsa el panel si quedo abierta, lo despliega si quedo cerrada.
+    setCajaPanelOpen(!isOpenNow);
+  }, [cashSession]);
 
   useEffect(() => {
     if (quickMode) {
@@ -1380,7 +1368,7 @@ export default function PosPage() {
         },
       ]);
       setMsg('Venta confirmada');
-      await Promise.all([loadCashSession(), loadDrafts(), loadRecentSales(), loadOperationalPending()]);
+      await Promise.all([loadCashSession(), loadDrafts(), loadOperationalPending()]);
     } catch (error) {
       setErr(errMsg(error));
     } finally {
@@ -1556,26 +1544,14 @@ export default function PosPage() {
   }
 
   return (
-    <div className="space-y-4 pb-6 xl:pb-32">
-      <div className="card">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h1 className="h1">POS operativo</h1>
-            <p className="text-sm text-gray-600">
-              Consola de mostrador con escaneo rapido, caja diaria y borradores en espera.
-            </p>
-          </div>
+    <div className="space-y-4 pb-6 xl:pb-56">
+      <div className="rounded-lg border border-neutral-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <h1 className="text-xl font-bold">POS operativo</h1>
           <div className="flex flex-wrap gap-2 text-xs">
             <button
               type="button"
-              className="rounded-full border border-neutral-300 bg-white px-2.5 py-1 font-semibold text-neutral-700 hover:bg-neutral-100"
-              onClick={() => setSalesHistoryOpen((open) => !open)}
-            >
-              Historial de ventas
-            </button>
-            <button
-              type="button"
-              className={`rounded-full border px-2.5 py-1 font-semibold ${
+              className={`rounded-full border px-2.5 py-0.5 font-semibold ${
                 quickMode
                   ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
                   : 'border-neutral-300 bg-white text-neutral-700'
@@ -1585,7 +1561,7 @@ export default function PosPage() {
               Venta rapida: {quickMode ? 'ON' : 'OFF'}
             </button>
             <span
-              className={`rounded-full border px-2.5 py-1 font-semibold ${
+              className={`rounded-full border px-2.5 py-0.5 font-semibold ${
                 cashSession
                   ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
                   : 'border-rose-300 bg-rose-50 text-rose-700'
@@ -1593,27 +1569,21 @@ export default function PosPage() {
             >
               Caja: {cashSession ? `abierta #${cashSession.id}` : 'sin apertura'}
             </span>
-            <span className="rounded-full border border-neutral-300 bg-neutral-50 px-2.5 py-1 font-semibold text-neutral-700">
+            <span className="rounded-full border border-neutral-300 bg-neutral-50 px-2.5 py-0.5 font-semibold text-neutral-700">
               Items: {formatQty(totalQty)}
             </span>
-            <span className="rounded-full border border-neutral-300 bg-neutral-50 px-2.5 py-1 font-semibold text-neutral-700">
+            <span className="rounded-full border border-neutral-300 bg-neutral-50 px-2.5 py-0.5 font-semibold text-neutral-700">
               Draft: {selectedDraft ? selectedDraft.draft_number : 'ninguno'}
             </span>
-            <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 font-semibold text-amber-700">
+            <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 font-semibold text-amber-700">
               Pendientes: {pendingSummary?.total || 0}
               {pendingSummary?.critical ? ` (${pendingSummary.critical} crit)` : ''}
             </span>
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-neutral-600 md:grid-cols-5">
-          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1">
-            Modo rapido {quickMode ? 'activo' : 'inactivo'}
-          </span>
-          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1">F2 foco escaner</span>
-          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1">F8 guardar draft</span>
-          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1">F9 confirmar</span>
-          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1">Ctrl+Backspace limpia carrito</span>
-        </div>
+        <p className="mt-1 text-xs text-neutral-500">
+          F2 foco escaner · F8 guardar draft · F9 confirmar · Ctrl+Backspace limpia carrito
+        </p>
       </div>
       {voidModal.open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1685,48 +1655,10 @@ export default function PosPage() {
           </form>
         </div>
       ) : null}
-      {salesHistoryOpen ? (
-        <div className="fixed inset-0 z-40 flex items-start justify-end bg-black/30 p-4 pt-20">
-          <section className="w-full max-w-md rounded-lg border border-neutral-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
-              <h2 className="text-lg font-semibold">Historial de ventas</h2>
-              <button
-                type="button"
-                className="rounded border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-100"
-                onClick={() => setSalesHistoryOpen(false)}
-              >
-                Cerrar
-              </button>
-            </div>
-            <div className="space-y-2 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm text-neutral-600">Ventas recientes de hoy</p>
-                <button type="button" className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={loadRecentSales}>
-                  Refrescar
-                </button>
-              </div>
-              {recentLoading ? (
-                <p className="text-sm text-gray-500">Cargando ventas...</p>
-              ) : recentSales.length ? (
-                <div className="max-h-[60vh] space-y-1 overflow-auto text-sm">
-                  {recentSales.map((row) => (
-                    <div key={row.id} className="flex items-center justify-between rounded border border-neutral-200 px-2 py-1.5">
-                      <span className="truncate">{row.sale_number || `#${row.id}`}</span>
-                      <strong>{money(row.total_ars)}</strong>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500">Sin ventas registradas hoy.</p>
-              )}
-            </div>
-          </section>
-        </div>
-      ) : null}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
-          <form className="card space-y-3" onSubmit={handleScanSubmit}>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+          <form className="space-y-2 rounded-lg border border-neutral-200 bg-white p-3 shadow-sm" onSubmit={handleScanSubmit}>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
               <div className="md:col-span-3">
                 <label className="label">Scanner: barcode, SKU, PLU o etiqueta de balanza</label>
                 <input
@@ -1745,7 +1677,7 @@ export default function PosPage() {
                 Foco scanner
               </button>
             </div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
               <div className="md:col-span-3">
                 <label className="label">Busqueda manual de productos</label>
                 <input
@@ -1884,25 +1816,20 @@ export default function PosPage() {
             )}
           </div>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <section className="card space-y-3">
+            <div className="card">
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-3 text-left"
-                onClick={() => setClientNotesOpen((open) => !open)}
-                aria-expanded={clientNotesOpen}
+                className="flex w-full items-center justify-between gap-2 text-left"
+                onClick={() => setCustomerPanelOpen((prev) => !prev)}
+                aria-expanded={customerPanelOpen}
               >
-                <span>
-                  <span className="block text-lg font-semibold">Cliente y notas</span>
-                  <span className="block text-xs text-neutral-500">
-                    {customerName || customerDoc || notes || couponCodes ? 'Datos cargados' : 'Sin datos de cliente'}
-                  </span>
-                </span>
-                <span className="rounded border border-neutral-300 px-2 py-1 text-xs font-semibold">
-                  {clientNotesOpen ? 'Ocultar' : 'Mostrar'}
+                <h2 className="text-lg font-semibold">Cliente y notas</h2>
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-neutral-300 text-lg leading-none text-neutral-700">
+                  {customerPanelOpen ? '-' : '+'}
                 </span>
               </button>
-              {clientNotesOpen ? (
-                <div className="space-y-3 border-t border-neutral-200 pt-3">
+              {customerPanelOpen ? (
+                <div className="mt-3 space-y-3">
                   {anyOverride ? (
                     <input
                       className="input"
@@ -1938,27 +1865,22 @@ export default function PosPage() {
                   />
                 </div>
               ) : null}
-            </section>
+            </div>
 
-            <section className="card space-y-3">
+            <div className="card">
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-3 text-left"
-                onClick={() => setDraftsOpen((open) => !open)}
-                aria-expanded={draftsOpen}
+                className="flex w-full items-center justify-between gap-2 text-left"
+                onClick={() => setDraftsPanelOpen((prev) => !prev)}
+                aria-expanded={draftsPanelOpen}
               >
-                <span>
-                  <span className="block text-lg font-semibold">Borradores en espera</span>
-                  <span className="block text-xs text-neutral-500">
-                    {selectedDraft ? `Activo: ${selectedDraft.draft_number}` : `${drafts.length} abiertos`}
-                  </span>
-                </span>
-                <span className="rounded border border-neutral-300 px-2 py-1 text-xs font-semibold">
-                  {draftsOpen ? 'Ocultar' : 'Mostrar'}
+                <h2 className="text-lg font-semibold">Borradores en espera</h2>
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-neutral-300 text-lg leading-none text-neutral-700">
+                  {draftsPanelOpen ? '-' : '+'}
                 </span>
               </button>
-              {draftsOpen ? (
-                <div className="space-y-3 border-t border-neutral-200 pt-3">
+              {draftsPanelOpen ? (
+                <div className="mt-3 space-y-3">
                   <input
                     className="input"
                     value={draftName}
@@ -2017,12 +1939,35 @@ export default function PosPage() {
                   </div>
                 </div>
               ) : null}
-            </section>
+            </div>
           </div>
         </div>
         <div className="space-y-4">
-          <div className="card space-y-3">
-            <h2 className="text-lg font-semibold">Caja</h2>
+          <div className="card">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-2 text-left"
+              onClick={() => setCajaPanelOpen((prev) => !prev)}
+              aria-expanded={cajaPanelOpen}
+            >
+              <span className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold">Caja</h2>
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                    cashSession
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                      : 'border-rose-300 bg-rose-50 text-rose-700'
+                  }`}
+                >
+                  {cashSession ? 'Abierta' : 'Cerrada'}
+                </span>
+              </span>
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-neutral-300 text-lg leading-none text-neutral-700">
+                {cajaPanelOpen ? '-' : '+'}
+              </span>
+            </button>
+            {cajaPanelOpen ? (
+            <div className="mt-3 space-y-3">
             <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-sm">
               {cashSession ? (
                 <div>
@@ -2133,436 +2078,407 @@ export default function PosPage() {
                 )}
               </div>
             </div>
-          </div>
-
-          <div className="card space-y-3">
-            <h2 className="text-lg font-semibold">Cobro</h2>
-            <div>
-              <label className="label">Medio de pago base (pricing)</label>
-              <select
-                className="input"
-                value={paymentMethod}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setPaymentMethod(next);
-                  setPaymentAccountCode(defaultAccountCode(next, accounts));
-                  if (next !== 'store_credit') {
-                    setSelectedStoreCreditId('');
-                  }
-                  setQuote(null);
-                }}
-              >
-                {PAYMENT_OPTIONS.map((op) => (
-                  <option key={op.value} value={op.value}>
-                    {op.label}
-                  </option>
-                ))}
-              </select>
             </div>
-            <div>
-              <label className="label">Cuenta / caja base</label>
-              <select
-                className="input"
-                value={paymentAccountCode}
-                onChange={(e) => setPaymentAccountCode(e.target.value)}
-              >
-                {filteredAccounts.map((op) => (
-                  <option key={op.code} value={op.code}>
-                    {op.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {paymentMethod === 'store_credit' ? (
-              <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
-                <div className="flex flex-wrap items-end gap-2">
-                  <button
-                    type="button"
-                    className="btn-secondary !py-2"
-                    onClick={loadStoreCreditsByDoc}
-                    disabled={storeCreditsLoading}
-                  >
-                    {storeCreditsLoading ? 'Buscando...' : 'Buscar creditos por DNI/CUIT'}
-                  </button>
-                  <span className="text-xs text-neutral-500">
-                    Doc cliente: <strong>{normalizeDocDigits(customerDoc) || '-'}</strong>
-                  </span>
-                </div>
-                <select
-                  className="input"
-                  value={selectedStoreCreditId}
-                  onChange={(e) => setSelectedStoreCreditId(e.target.value)}
-                >
-                  <option value="">Seleccionar credito tienda</option>
-                  {storeCredits.map((row) => (
-                    <option key={`base-credit-${row.id}`} value={String(row.id)}>
-                      #{row.id} | saldo {money(row.amount_balance_ars)} | {row.customer_name || row.customer_doc || 'cliente'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-            {!splitPaymentsEnabled && paymentMethod === 'cash' ? (
-              <div className="grid grid-cols-1 gap-2 rounded-lg border border-neutral-200 p-2 md:grid-cols-3">
-                <label className="block md:col-span-1">
-                  <span className="label">Recibido</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={cashReceived}
-                    onChange={(e) => setCashReceived(e.target.value)}
-                  />
-                </label>
-                <div className="rounded border border-neutral-200 bg-neutral-50 p-2 text-sm">
-                  <div>Total</div>
-                  <strong>{money(totalDue)}</strong>
-                </div>
-                <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-800">
-                  <div>Vuelto</div>
-                  <strong>{money(cashChange)}</strong>
-                </div>
-              </div>
-            ) : null}
-
-            <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
-              <input
-                type="checkbox"
-                checked={splitPaymentsEnabled}
-                onChange={(e) => setSplitPaymentsEnabled(e.target.checked)}
-              />
-              Pago mixto (split tender)
-            </label>
-
-            {splitPaymentsEnabled ? (
-              <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
-                {splitPayments.map((row, idx) => {
-                  const scopedAccounts = accountsByMethod(row.method || paymentMethod);
-                  return (
-                    <div key={`split-${idx}`} className="grid grid-cols-1 gap-2">
-                      <select
-                        className="input"
-                        value={row.method}
-                        onChange={(e) =>
-                          changeSplitRow(idx, {
-                            method: e.target.value,
-                            account_code: defaultAccountCode(e.target.value, accounts),
-                            modifier_pct: String(
-                              accountModifierPct(defaultAccountCode(e.target.value, accounts), accounts)
-                            ),
-                          })
-                        }
-                      >
-                        {PAYMENT_OPTIONS.map((op) => (
-                          <option key={op.value} value={op.value}>
-                            {op.label}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="input"
-                        value={row.account_code}
-                        onChange={(e) =>
-                          changeSplitRow(idx, {
-                            account_code: e.target.value,
-                            modifier_pct: String(accountModifierPct(e.target.value, accounts)),
-                          })
-                        }
-                      >
-                        {scopedAccounts.map((acc) => (
-                          <option key={`${idx}-${acc.code}`} value={acc.code}>
-                            {acc.label}
-                          </option>
-                        ))}
-                      </select>
-                      {row.method === 'store_credit' ? (
-                        <select
-                          className="input"
-                          value={row.store_credit_id || ''}
-                          onChange={(e) => changeSplitRow(idx, { store_credit_id: e.target.value })}
-                        >
-                          <option value="">Seleccionar credito</option>
-                          {storeCredits.map((credit) => (
-                            <option key={`split-credit-${idx}-${credit.id}`} value={String(credit.id)}>
-                              #{credit.id} | saldo {money(credit.amount_balance_ars)}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
-                      <input
-                        className="input"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        placeholder="Monto base"
-                        value={row.amount_ars}
-                        onChange={(e) => changeSplitRow(idx, { amount_ars: e.target.value })}
-                      />
-                      {isAdmin ? (
-                        <input
-                          className="input"
-                          type="number"
-                          step="0.01"
-                          min="-99.99"
-                          placeholder="% ajuste"
-                          value={row.modifier_pct ?? ''}
-                          onChange={(e) => changeSplitRow(idx, { modifier_pct: e.target.value })}
-                        />
-                      ) : null}
-                      <button
-                        type="button"
-                        className="rounded border border-neutral-300 px-2 py-1 text-xs"
-                        onClick={() => removeSplitRow(idx)}
-                        disabled={splitPayments.length <= 1}
-                      >
-                        Quitar
-                      </button>
-                    </div>
-                  );
-                })}
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="btn-secondary !py-2"
-                    onClick={loadStoreCreditsByDoc}
-                    disabled={storeCreditsLoading}
-                  >
-                    {storeCreditsLoading ? 'Buscando...' : 'Actualizar creditos por DNI/CUIT'}
-                  </button>
-                  <span className="text-xs text-neutral-500">
-                    Disponibles: <strong>{storeCredits.length}</strong>
-                  </span>
-                </div>
-                <button type="button" className="btn-secondary !py-2" onClick={addSplitRow}>
-                  Agregar tramo
-                </button>
-                <div className="rounded border border-dashed px-2 py-1 text-xs">
-                  <div>
-                    Suma base tramos: <strong>{money(splitTotals.current)}</strong>
-                  </div>
-                  <div>
-                    Subtotal base: <strong>{money(splitTotals.expected)}</strong>
-                  </div>
-                  <div className={splitTotals.diff === 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                    Diferencia: <strong>{money(splitTotals.diff)}</strong>
-                  </div>
-                </div>
-              </div>
             ) : null}
           </div>
 
           <div className="xl:sticky xl:top-20 xl:self-start">
             <div className="card space-y-3">
-              <h2 className="text-lg font-semibold">Totales y cierre de venta</h2>
-              {quote ? (
-                <div className="space-y-1 text-sm">
-                  <div>
-                    Subtotal: <strong>{money(quote.subtotal_ars)}</strong>
+              <h2 className="text-lg font-semibold">Cobro</h2>
+              <div>
+                <label className="label">Medio de pago base (pricing)</label>
+                <select
+                  className="input"
+                  value={paymentMethod}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setPaymentMethod(next);
+                    setPaymentAccountCode(defaultAccountCode(next, accounts));
+                    if (next !== 'store_credit') {
+                      setSelectedStoreCreditId('');
+                    }
+                    setQuote(null);
+                  }}
+                >
+                  {PAYMENT_OPTIONS.map((op) => (
+                    <option key={op.value} value={op.value}>
+                      {op.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Cuenta / caja base</label>
+                <select
+                  className="input"
+                  value={paymentAccountCode}
+                  onChange={(e) => setPaymentAccountCode(e.target.value)}
+                >
+                  {filteredAccounts.map((op) => (
+                    <option key={op.code} value={op.code}>
+                      {op.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {paymentMethod === 'store_credit' ? (
+                <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <button
+                      type="button"
+                      className="btn-secondary !py-2"
+                      onClick={loadStoreCreditsByDoc}
+                      disabled={storeCreditsLoading}
+                    >
+                      {storeCreditsLoading ? 'Buscando...' : 'Buscar creditos por DNI/CUIT'}
+                    </button>
+                    <span className="text-xs text-neutral-500">
+                      Doc cliente: <strong>{normalizeDocDigits(customerDoc) || '-'}</strong>
+                    </span>
                   </div>
-                  <div>
-                    Promociones: <strong>{money(quote.promotion_discount_total_ars)}</strong>
+                  <select
+                    className="input"
+                    value={selectedStoreCreditId}
+                    onChange={(e) => setSelectedStoreCreditId(e.target.value)}
+                  >
+                    <option value="">Seleccionar credito tienda</option>
+                    {storeCredits.map((row) => (
+                      <option key={`base-credit-${row.id}`} value={String(row.id)}>
+                        #{row.id} | saldo {money(row.amount_balance_ars)} | {row.customer_name || row.customer_doc || 'cliente'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {!splitPaymentsEnabled && paymentMethod === 'cash' ? (
+                <div className="grid grid-cols-1 gap-2 rounded-lg border border-neutral-200 p-2 2xl:grid-cols-3">
+                  <label className="block">
+                    <span className="label">Recibido</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={cashReceived}
+                      onChange={(e) => setCashReceived(e.target.value)}
+                    />
+                  </label>
+                  <div className="rounded border border-neutral-200 bg-neutral-50 p-2 text-sm">
+                    <div>Total</div>
+                    <strong>{money(totalDue)}</strong>
                   </div>
-                  <div>
-                    Subtotal promos: <strong>{money(quote.subtotal_after_promotions_ars)}</strong>
+                  <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-800">
+                    <div>Vuelto</div>
+                    <strong>{money(cashChange)}</strong>
                   </div>
-                  <div>
-                    Modificador ({quote.price_modifier_pct}%):{' '}
-                    <strong>{money(quote.modifier_amount_ars)}</strong>
-                  </div>
-                  <div className="text-base">
-                    Total: <strong>{money(quote.total_ars)}</strong>
-                  </div>
-                  <div>
-                    Factura requerida:{' '}
-                    <strong>{quote.invoice_required ? 'Si' : 'No (comprobante interno)'}</strong>
-                  </div>
-                  {Array.isArray(quote?.payment_breakdown) && quote.payment_breakdown.length ? (
-                    <div className="rounded border border-dashed px-2 py-1 mt-2">
-                      <p className="text-xs uppercase text-neutral-500">Desglose de cobro</p>
-                      <div className="space-y-1 mt-1">
-                        {quote.payment_breakdown.map((row, idx) => (
-                          <div key={`quote-pay-${idx}`} className="text-xs">
-                            <strong>{row.account_label || row.account_code || row.method}</strong> | base{' '}
-                            {money(row.base_amount_ars)} | {Number(row.modifier_pct || 0)}% ({money(row.modifier_amount_ars)}) | final{' '}
-                            <strong>{money(row.amount_ars)}</strong>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="rounded border border-neutral-200 bg-neutral-50 p-2 mt-2 space-y-2">
-                    <p className="text-xs uppercase text-neutral-500">Facturacion de la venta</p>
-                    <p className="text-xs">
-                      Default: <strong>{quote?.invoice_default?.invoice_required ? (quote?.invoice_default?.arca_account_label || quote?.invoice_default?.arca_account_code || 'Cuenta ARCA') : 'No facturar'}</strong>
-                    </p>
-                    {isAdmin ? (
-                      <div className="grid grid-cols-1 gap-2">
+                </div>
+              ) : null}
+
+              <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
+                <input
+                  type="checkbox"
+                  checked={splitPaymentsEnabled}
+                  onChange={(e) => setSplitPaymentsEnabled(e.target.checked)}
+                />
+                Pago mixto (split tender)
+              </label>
+
+              {splitPaymentsEnabled ? (
+                <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
+                  {splitPayments.map((row, idx) => {
+                    const scopedAccounts = accountsByMethod(row.method || paymentMethod);
+                    return (
+                      <div key={`split-${idx}`} className="grid grid-cols-1 gap-2 2xl:grid-cols-8">
                         <select
-                          className="input"
-                          value={invoiceOverrideMode}
-                          onChange={(e) => setInvoiceOverrideMode(e.target.value)}
+                          className="input 2xl:col-span-2"
+                          value={row.method}
+                          onChange={(e) =>
+                            changeSplitRow(idx, {
+                              method: e.target.value,
+                              account_code: defaultAccountCode(e.target.value, accounts),
+                              modifier_pct: String(
+                                accountModifierPct(defaultAccountCode(e.target.value, accounts), accounts)
+                              ),
+                            })
+                          }
                         >
-                          <option value="default">Usar default</option>
-                          <option value="none">No facturar</option>
-                          <option value="arca">Forzar cuenta ARCA</option>
+                          {PAYMENT_OPTIONS.map((op) => (
+                            <option key={op.value} value={op.value}>
+                              {op.label}
+                            </option>
+                          ))}
                         </select>
-                        {invoiceOverrideMode === 'arca' ? (
+                        <select
+                          className="input 2xl:col-span-2"
+                          value={row.account_code}
+                          onChange={(e) =>
+                            changeSplitRow(idx, {
+                              account_code: e.target.value,
+                              modifier_pct: String(accountModifierPct(e.target.value, accounts)),
+                            })
+                          }
+                        >
+                          {scopedAccounts.map((acc) => (
+                            <option key={`${idx}-${acc.code}`} value={acc.code}>
+                              {acc.label}
+                            </option>
+                          ))}
+                        </select>
+                        {row.method === 'store_credit' ? (
                           <select
-                            className="input"
-                            value={invoiceOverrideArcaAccountId}
-                            onChange={(e) => setInvoiceOverrideArcaAccountId(e.target.value)}
+                            className="input 2xl:col-span-2"
+                            value={row.store_credit_id || ''}
+                            onChange={(e) => changeSplitRow(idx, { store_credit_id: e.target.value })}
                           >
-                            <option value="">Seleccionar cuenta ARCA</option>
-                            {arcaAccounts.map((arca) => (
-                              <option key={`override-arca-${arca.id}`} value={String(arca.id)}>
-                                {arca.label || arca.code}
+                            <option value="">Seleccionar credito</option>
+                            {storeCredits.map((credit) => (
+                              <option key={`split-credit-${idx}-${credit.id}`} value={String(credit.id)}>
+                                #{credit.id} | saldo {money(credit.amount_balance_ars)}
                               </option>
                             ))}
                           </select>
                         ) : null}
+                        <input
+                          className="input"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Monto base"
+                          value={row.amount_ars}
+                          onChange={(e) => changeSplitRow(idx, { amount_ars: e.target.value })}
+                        />
+                        {isAdmin ? (
+                          <input
+                            className="input"
+                            type="number"
+                            step="0.01"
+                            min="-99.99"
+                            placeholder="% ajuste"
+                            value={row.modifier_pct ?? ''}
+                            onChange={(e) => changeSplitRow(idx, { modifier_pct: e.target.value })}
+                          />
+                        ) : null}
+                        <button
+                          type="button"
+                          className="rounded border border-neutral-300 px-2 py-1 text-xs"
+                          onClick={() => removeSplitRow(idx)}
+                          disabled={splitPayments.length <= 1}
+                        >
+                          Quitar
+                        </button>
                       </div>
-                    ) : (
-                      <p className="text-xs text-neutral-600">
-                        Modo aplicado:{' '}
-                        <strong>
-                          {quote.invoice_required
-                            ? quote.invoice_arca_account_label || quote.invoice_arca_account_code || 'Cuenta ARCA'
-                            : 'No facturar'}
-                        </strong>
-                      </p>
-                    )}
+                    );
+                  })}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="btn-secondary !py-2"
+                      onClick={loadStoreCreditsByDoc}
+                      disabled={storeCreditsLoading}
+                    >
+                      {storeCreditsLoading ? 'Buscando...' : 'Actualizar creditos por DNI/CUIT'}
+                    </button>
+                    <span className="text-xs text-neutral-500">
+                      Disponibles: <strong>{storeCredits.length}</strong>
+                    </span>
                   </div>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500">
-                  {quoteBusy && items.length && cashSession
-                    ? 'Calculando cotizacion...'
-                    : 'Sin cotizacion activa.'}
-                </p>
-              )}
-              {quoteBusy && items.length && cashSession ? (
-                <p className="text-xs text-neutral-500">Recalculando cotizacion en segundo plano...</p>
-              ) : null}
-              {!cashSession ? (
-                <p className="rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
-                  {cashRequiredNotice}
-                </p>
-              ) : null}
-
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleConfirm}
-                  disabled={confirmActionDisabled}
-                >
-                  Confirmar venta
-                </button>
-              </div>
-              {splitMismatch ? (
-                <p className="text-xs text-rose-700">
-                  La suma base de pagos mixtos no coincide con el subtotal base cotizado.
-                </p>
-              ) : null}
-              {storeCreditSelectionMissing ? (
-                <p className="text-xs text-rose-700">
-                  Falta seleccionar credito tienda para uno o mas tramos de pago.
-                </p>
-              ) : null}
-
-              {err ? <p className="rounded border border-rose-300 bg-rose-50 p-2 text-sm text-rose-700">{err}</p> : null}
-              {msg ? <p className="rounded border border-emerald-300 bg-emerald-50 p-2 text-sm text-emerald-700">{msg}</p> : null}
-              {lastSale ? (
-                <div className="rounded border border-green-300 bg-green-50 p-3 text-sm">
-                  Venta confirmada: <strong>{lastSale.sale_number || `#${lastSale.id}`}</strong> por{' '}
-                  <strong>{money(lastSale.total_ars)}</strong>. Estado factura:{' '}
-                  <strong>{lastSale?.invoice?.status || 'sin generar'}</strong>.
-                  {lastSale?.invoice?.arca_account_label || lastSale?.invoice?.arca_account_code ? (
-                    <>
-                      {' '}Cuenta ARCA:{' '}
-                      <strong>{lastSale?.invoice?.arca_account_label || lastSale?.invoice?.arca_account_code}</strong>.
-                    </>
-                  ) : null}
+                  <button type="button" className="btn-secondary !py-2" onClick={addSplitRow}>
+                    Agregar tramo
+                  </button>
+                  <div className="rounded border border-dashed px-2 py-1 text-xs">
+                    <div>
+                      Suma base tramos: <strong>{money(splitTotals.current)}</strong>
+                    </div>
+                    <div>
+                      Subtotal base: <strong>{money(splitTotals.expected)}</strong>
+                    </div>
+                    <div className={splitTotals.diff === 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                      Diferencia: <strong>{money(splitTotals.diff)}</strong>
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>
           </div>
         </div>
       </div>
-      <div
-        className={`relative z-20 mt-4 rounded-lg border p-3 shadow-lg backdrop-blur xl:fixed xl:bottom-3 xl:left-64 xl:right-3 ${
-          quickMode
-            ? 'border-indigo-200 bg-indigo-50/95'
-            : 'border-neutral-200 bg-white/95'
-        }`}
-      >
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-center">
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {quickMode ? (
-                <span className="rounded-full border border-indigo-300 bg-indigo-100 px-2 py-0.5 font-semibold text-indigo-700">
-                  Venta rapida ON
-                </span>
-              ) : null}
-              <span className="text-neutral-600">
-                {quoteBusy
-                  ? 'Calculando cotizacion...'
-                  : quote
-                    ? 'Totales listos para cerrar venta'
-                    : 'Sin cotizacion activa'}
-              </span>
-            </div>
-            {!cashSession ? (
-              <p className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900 sm:text-sm">
-                {cashRequiredNotice}
-              </p>
-            ) : null}
+      <div className="mt-3 xl:fixed xl:bottom-3 xl:left-56 xl:right-3 xl:z-20 xl:max-h-[70vh] xl:overflow-y-auto">
+        <div className="space-y-2 rounded-lg border border-neutral-200 bg-white p-3 shadow-sm xl:shadow-xl">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-neutral-900">Totales y cierre de venta</h2>
             {quote ? (
-              <div className="grid grid-cols-3 gap-2 text-xs sm:text-sm">
-                <div className="rounded-lg border border-neutral-200 bg-white px-2 py-1">
-                  <div className="text-[11px] uppercase text-neutral-500">Subtotal</div>
-                  <strong>{money(quote.subtotal_ars)}</strong>
-                </div>
-                <div className="rounded-lg border border-neutral-200 bg-white px-2 py-1">
-                  <div className="text-[11px] uppercase text-neutral-500">Promociones</div>
-                  <strong>{money(quote.promotion_discount_total_ars)}</strong>
-                </div>
-                <div className="rounded-lg border border-neutral-200 bg-white px-2 py-1">
-                  <div className="text-[11px] uppercase text-neutral-500">Total</div>
-                  <strong>{money(quote.total_ars)}</strong>
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-neutral-600 sm:text-sm">
-                {quoteBusy && items.length && cashSession
-                  ? 'Calculando cotizacion para actualizar total...'
-                  : 'Sin cotizacion activa.'}
-              </p>
-            )}
+              <button
+                type="button"
+                className="text-xs font-semibold text-neutral-600 hover:text-neutral-900 hover:underline"
+                onClick={() => setTotalsDetailOpen((prev) => !prev)}
+              >
+                {totalsDetailOpen ? 'Ocultar detalle' : 'Ver detalle'}
+              </button>
+            ) : null}
           </div>
 
-          <div className="grid grid-cols-1 gap-2">
+          {quote ? (
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1">
+                <div className="text-[10px] uppercase text-neutral-500">Subtotal</div>
+                <strong className="text-sm">{money(quote.subtotal_ars)}</strong>
+              </div>
+              <div className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1">
+                <div className="text-[10px] uppercase text-neutral-500">Promos</div>
+                <strong className="text-sm">{money(quote.promotion_discount_total_ars)}</strong>
+              </div>
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1">
+                <div className="text-[10px] uppercase text-emerald-700">Total</div>
+                <strong className="text-sm text-emerald-800">{money(quote.total_ars)}</strong>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">
+              {quoteBusy && items.length && cashSession
+                ? 'Calculando cotizacion...'
+                : 'Sin cotizacion activa.'}
+            </p>
+          )}
+          {quoteBusy && items.length && cashSession ? (
+            <p className="text-xs text-neutral-500">Recalculando cotizacion en segundo plano...</p>
+          ) : null}
+
+          {totalsDetailOpen && quote ? (
+            <div className="space-y-1 border-t border-neutral-100 pt-2 text-sm">
+              <div>
+                Subtotal promos: <strong>{money(quote.subtotal_after_promotions_ars)}</strong>
+              </div>
+              <div>
+                Modificador ({quote.price_modifier_pct}%):{' '}
+                <strong>{money(quote.modifier_amount_ars)}</strong>
+              </div>
+              <div>
+                Factura requerida:{' '}
+                <strong>{quote.invoice_required ? 'Si' : 'No (comprobante interno)'}</strong>
+              </div>
+              {Array.isArray(quote?.payment_breakdown) && quote.payment_breakdown.length ? (
+                <div className="rounded border border-dashed px-2 py-1">
+                  <p className="text-xs uppercase text-neutral-500">Desglose de cobro</p>
+                  <div className="space-y-1 mt-1">
+                    {quote.payment_breakdown.map((row, idx) => (
+                      <div key={`quote-pay-${idx}`} className="text-xs">
+                        <strong>{row.account_label || row.account_code || row.method}</strong> | base{' '}
+                        {money(row.base_amount_ars)} | {Number(row.modifier_pct || 0)}% ({money(row.modifier_amount_ars)}) | final{' '}
+                        <strong>{money(row.amount_ars)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="space-y-2 rounded border border-neutral-200 bg-neutral-50 p-2">
+                <p className="text-xs uppercase text-neutral-500">Facturacion de la venta</p>
+                <p className="text-xs">
+                  Default: <strong>{quote?.invoice_default?.invoice_required ? (quote?.invoice_default?.arca_account_label || quote?.invoice_default?.arca_account_code || 'Cuenta ARCA') : 'No facturar'}</strong>
+                </p>
+                {isAdmin ? (
+                  <div className="grid grid-cols-1 gap-2">
+                    <select
+                      className="input"
+                      value={invoiceOverrideMode}
+                      onChange={(e) => setInvoiceOverrideMode(e.target.value)}
+                    >
+                      <option value="default">Usar default</option>
+                      <option value="none">No facturar</option>
+                      <option value="arca">Forzar cuenta ARCA</option>
+                    </select>
+                    {invoiceOverrideMode === 'arca' ? (
+                      <select
+                        className="input"
+                        value={invoiceOverrideArcaAccountId}
+                        onChange={(e) => setInvoiceOverrideArcaAccountId(e.target.value)}
+                      >
+                        <option value="">Seleccionar cuenta ARCA</option>
+                        {arcaAccounts.map((arca) => (
+                          <option key={`override-arca-${arca.id}`} value={String(arca.id)}>
+                            {arca.label || arca.code}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-neutral-600">
+                    Modo aplicado:{' '}
+                    <strong>
+                      {quote.invoice_required
+                        ? quote.invoice_arca_account_label || quote.invoice_arca_account_code || 'Cuenta ARCA'
+                        : 'No facturar'}
+                    </strong>
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {!cashSession ? (
+            <p className="rounded border border-amber-300 bg-amber-50 p-1.5 text-xs text-amber-900">
+              {cashRequiredNotice}
+            </p>
+          ) : null}
+
+          <div className={quickMode ? 'grid grid-cols-[1fr_2fr_1fr] gap-2' : 'grid grid-cols-1 gap-2'}>
+            {quickMode ? (
+              <button
+                type="button"
+                className="btn-secondary !px-2 !py-2 !text-xs"
+                onClick={() => focusScan(true)}
+                disabled={busy}
+              >
+                F2 Scanner
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn !py-2"
               onClick={handleConfirm}
               disabled={confirmActionDisabled}
             >
-              F9 Confirmar
+              Confirmar venta
             </button>
+            {quickMode ? (
+              <button
+                type="button"
+                className="btn-secondary !px-2 !py-2 !text-xs"
+                onClick={quickSaveDraft}
+                disabled={busy || !items.length}
+              >
+                F8 Draft
+              </button>
+            ) : null}
           </div>
+
+          {splitMismatch ? (
+            <p className="text-xs text-rose-700">
+              La suma base de pagos mixtos no coincide con el subtotal base cotizado.
+            </p>
+          ) : null}
+          {storeCreditSelectionMissing ? (
+            <p className="text-xs text-rose-700">
+              Falta seleccionar credito tienda para uno o mas tramos de pago.
+            </p>
+          ) : null}
+
+          {err ? <p className="rounded border border-rose-300 bg-rose-50 p-1.5 text-xs text-rose-700">{err}</p> : null}
+          {msg ? <p className="rounded border border-emerald-300 bg-emerald-50 p-1.5 text-xs text-emerald-700">{msg}</p> : null}
+          {lastSale ? (
+            <div className="rounded border border-green-300 bg-green-50 p-2 text-xs">
+              Venta confirmada: <strong>{lastSale.sale_number || `#${lastSale.id}`}</strong> por{' '}
+              <strong>{money(lastSale.total_ars)}</strong>. Estado factura:{' '}
+              <strong>{lastSale?.invoice?.status || 'sin generar'}</strong>.
+              {lastSale?.invoice?.arca_account_label || lastSale?.invoice?.arca_account_code ? (
+                <>
+                  {' '}Cuenta ARCA:{' '}
+                  <strong>{lastSale?.invoice?.arca_account_label || lastSale?.invoice?.arca_account_code}</strong>.
+                </>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-        {quickMode ? (
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" className="btn-secondary !py-2" onClick={() => focusScan(true)} disabled={busy}>
-              F2 Scanner
-            </button>
-            <button type="button" className="btn-secondary !py-2" onClick={quickSaveDraft} disabled={busy || !items.length}>
-              F8 Draft
-            </button>
-          </div>
-        ) : null}
       </div>
     </div>
   );

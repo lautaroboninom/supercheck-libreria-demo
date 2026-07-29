@@ -20,10 +20,26 @@ import {
 import { attrCode, dedupValues, normalizeValueError, splitValues } from '../lib/variantAttributes';
 import { VariantAttributeMultiRows, VariantAttributeRows } from '../components/VariantAttributeRows';
 import VariantBatchCreator from '../components/VariantBatchCreator';
+import InfoHint from '../components/InfoHint';
 
 function errMsg(error) {
   return error?.message || 'Ocurrio un error inesperado';
 }
+
+function HelpTitle({ as: Tag = 'h3', className = '', children, help, ...props }) {
+  return (
+    <Tag {...props} className={`inline-flex items-center gap-2 ${className}`}>
+      <span>{children}</span>
+      <InfoHint text={help} />
+    </Tag>
+  );
+}
+
+const PURCHASE_TABS = [
+  { id: 'compra', label: 'Registrar compra' },
+  { id: 'ordenes', label: 'Ordenes de compra' },
+  { id: 'proveedores', label: 'Proveedores' },
+];
 
 function parseNum(value) {
   if (value == null) return null;
@@ -312,7 +328,31 @@ function payloadItems(items) {
   });
 }
 
+function onPurchaseTabKeyDown(event, currentTabId, setActiveTab) {
+  const currentIndex = PURCHASE_TABS.findIndex((tab) => tab.id === currentTabId);
+  if (currentIndex < 0) return;
+  let nextIndex = currentIndex;
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+    nextIndex = (currentIndex + 1) % PURCHASE_TABS.length;
+  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+    nextIndex = (currentIndex - 1 + PURCHASE_TABS.length) % PURCHASE_TABS.length;
+  } else if (event.key === 'Home') {
+    nextIndex = 0;
+  } else if (event.key === 'End') {
+    nextIndex = PURCHASE_TABS.length - 1;
+  } else {
+    return;
+  }
+  event.preventDefault();
+  const nextTab = PURCHASE_TABS[nextIndex];
+  setActiveTab(nextTab.id);
+  window.setTimeout(() => {
+    document.getElementById(`compras-tab-${nextTab.id}`)?.focus();
+  }, 0);
+}
+
 export default function ComprasPage() {
+  const [activeTab, setActiveTab] = useState('compra');
   const [supplierName, setSupplierName] = useState('');
   const [purchaseDate, setPurchaseDate] = useState('');
   const [currencyCode, setCurrencyCode] = useState('ARS');
@@ -330,6 +370,9 @@ export default function ComprasPage() {
   const [suppliersLoading, setSuppliersLoading] = useState(false);
   const [suppliersErr, setSuppliersErr] = useState('');
   const [suppliersQuery, setSuppliersQuery] = useState('');
+  const [supplierSuggestOpen, setSupplierSuggestOpen] = useState(false);
+  const [supplierSuggestions, setSupplierSuggestions] = useState([]);
+  const [supplierSuggestLoading, setSupplierSuggestLoading] = useState(false);
 
   const [lookupIndex, setLookupIndex] = useState(null);
   const [lookupRows, setLookupRows] = useState([]);
@@ -532,6 +575,32 @@ export default function ComprasPage() {
   useEffect(() => {
     loadPurchaseOrders();
   }, []);
+
+  useEffect(() => {
+    if (!supplierSuggestOpen) {
+      setSupplierSuggestions([]);
+      return;
+    }
+    const query = supplierName.trim();
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSupplierSuggestLoading(true);
+      try {
+        const rows = await getRetailComprasProveedores({ q: query || undefined, limit: 8 });
+        if (cancelled) return;
+        setSupplierSuggestions(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setSupplierSuggestions([]);
+      } finally {
+        if (!cancelled) setSupplierSuggestLoading(false);
+      }
+    }, query ? 220 : 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [supplierName, supplierSuggestOpen]);
 
   useEffect(() => {
     if (lookupIndex == null) {
@@ -1524,18 +1593,117 @@ export default function ComprasPage() {
 
   return (
     <div className="space-y-4">
-      <div className="card">
-        <h1 className="h1">Compras / Proveedores</h1>
-        <p className="text-sm text-gray-600">
-          Ingreso de mercaderia con trazabilidad de costos y actualizacion de costo promedio por presentacion.
-        </p>
+      <div className="card space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <HelpTitle
+              as="h1"
+              className="h1"
+              help="Registra el ingreso de mercaderia, gestiona ordenes de compra y consulta proveedores desde secciones separadas."
+            >
+              Compras
+            </HelpTitle>
+            <p className="mt-1 text-sm text-gray-600">
+              Ingreso de mercaderia con trazabilidad de costos y actualizacion de costo promedio por presentacion.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-neutral-700">
+              Ordenes de compra: {poRows.length}
+            </span>
+            {poSuggestions.length ? (
+              <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 font-semibold text-amber-800">
+                Sugerencias pendientes: {poSuggestions.length}
+              </span>
+            ) : null}
+            <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-neutral-700">
+              Proveedores: {suppliersRows.length}
+            </span>
+          </div>
+        </div>
+
+        <div
+          className="grid grid-cols-1 gap-2 rounded-xl bg-neutral-100 p-1 sm:grid-cols-3"
+          role="tablist"
+          aria-label="Secciones de compras"
+        >
+          {PURCHASE_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              id={`compras-tab-${tab.id}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={`compras-panel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+                activeTab === tab.id
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-neutral-600 hover:bg-white/70 hover:text-neutral-900'
+              }`}
+              onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(event) => onPurchaseTabKeyDown(event, tab.id, setActiveTab)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {activeTab === 'compra' ? (
+      <div id="compras-panel-compra" role="tabpanel" aria-labelledby="compras-tab-compra" className="space-y-4">
       <form className="card relative z-30 isolate space-y-4" onSubmit={onSubmit}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div>
+          <div className="relative">
             <label className="block text-xs text-gray-500 mb-1">Proveedor</label>
-            <input className="input" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} required />
+            <input
+              className="input"
+              value={supplierName}
+              onChange={(e) => {
+                setSupplierName(e.target.value);
+                setSupplierSuggestOpen(true);
+              }}
+              onFocus={() => setSupplierSuggestOpen(true)}
+              onBlur={() => {
+                setTimeout(() => setSupplierSuggestOpen(false), 120);
+              }}
+              autoComplete="off"
+              required
+            />
+            {supplierSuggestOpen ? (
+              <div className="absolute z-[70] mt-1 w-full rounded border bg-white shadow-lg overflow-hidden">
+                <div className="max-h-64 overflow-auto">
+                  {supplierSuggestLoading ? (
+                    <div className="px-2 py-2 text-xs text-gray-500">Buscando...</div>
+                  ) : supplierSuggestions.length ? (
+                    supplierSuggestions.map((row) => (
+                      <button
+                        key={row.id}
+                        type="button"
+                        className="flex w-full items-center justify-between gap-2 border-b px-2 py-2 text-left text-sm last:border-b-0 hover:bg-gray-50"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setSupplierName(String(row.name || ''));
+                          setSupplierSuggestOpen(false);
+                        }}
+                      >
+                        <span className="font-medium text-gray-800">{row.name}</span>
+                        <span className="text-xs text-gray-500">
+                          {Number(row.purchases_count || 0)} compras
+                          {row.last_purchase_date ? ` · ${fmtDate(row.last_purchase_date)}` : ''}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-2 py-2 text-xs text-gray-600">
+                      {supplierName.trim()
+                        ? `Sin proveedores para "${supplierName.trim()}". Se creara como nuevo al registrar la compra.`
+                        : 'Sin proveedores registrados todavia.'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">Fecha compra</label>
@@ -1588,14 +1756,20 @@ export default function ComprasPage() {
               El margen general es local a esta pantalla y no cambia la configuracion global.
             </p>
           </div>
-          <h2 className="text-lg font-semibold">Items</h2>
+          <HelpTitle
+            as="h2"
+            className="text-lg font-semibold"
+            help="Cada fila es una presentacion a recibir en esta compra. Busca por nombre, SKU o barcode; si no existe, podes crearla sin salir de esta pantalla."
+          >
+            Items
+          </HelpTitle>
           {items.map((it, idx) => {
             const marginPct = itemMarginPct(it);
             const printCopies = itemPrintCopies(it);
             return (
             <div
               key={idx}
-              className="grid grid-cols-1 md:grid-cols-12 gap-2 items-start rounded border border-gray-200 p-2"
+              className="grid grid-cols-1 md:grid-cols-12 gap-2 items-start rounded-lg border border-neutral-200 bg-white p-3"
             >
               <div className="md:col-span-1">
                 <label className="block text-xs text-gray-500 mb-1">Presentacion ID</label>
@@ -1813,11 +1987,20 @@ export default function ComprasPage() {
           </p>
         </div>
       ) : null}
+      </div>
+      ) : null}
 
-      <div className="card relative z-0 space-y-3">
+      {activeTab === 'proveedores' ? (
+      <div id="compras-panel-proveedores" role="tabpanel" aria-labelledby="compras-tab-proveedores" className="card relative z-0 space-y-3">
         <div className="flex flex-wrap gap-2 items-end justify-between">
           <div>
-            <h2 className="text-lg font-semibold">Lista de proveedores</h2>
+            <HelpTitle
+              as="h2"
+              className="text-lg font-semibold"
+              help="Estos proveedores surgen de compras registradas anteriormente. Selecciona uno para autocompletar el campo Proveedor del formulario de Registrar compra."
+            >
+              Lista de proveedores
+            </HelpTitle>
             <p className="text-xs text-gray-500">Selecciona uno para autocompletar el campo Proveedor del formulario.</p>
           </div>
           <div className="flex flex-wrap gap-2 items-end">
@@ -1892,6 +2075,7 @@ export default function ComprasPage() {
           )
         ) : null}
       </div>
+      ) : null}
 
       {quickOpen ? (
         <div className="fixed inset-0 z-[55] bg-black/40 p-3 md:p-6" onClick={closeQuickModal}>
@@ -1961,11 +2145,18 @@ export default function ComprasPage() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      {activeTab === 'ordenes' ? (
+      <div id="compras-panel-ordenes" role="tabpanel" aria-labelledby="compras-tab-ordenes" className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="card space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold">Ordenes de compra</h2>
+              <HelpTitle
+                as="h2"
+                className="text-lg font-semibold"
+                help="Ordenes de compra generadas manualmente o desde reposicion sugerida. Recibir una OC registra la compra y actualiza stock y costo promedio."
+              >
+                Ordenes de compra
+              </HelpTitle>
               <p className="text-sm text-gray-600">Genera OCs desde reposicion sugerida y recibe mercaderia directo a deposito.</p>
             </div>
             <button type="button" className="px-3 py-2 rounded border" onClick={loadPurchaseOrders} disabled={poLoading || poSaving}>
@@ -2028,7 +2219,13 @@ export default function ComprasPage() {
         <div className="card space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold">Reposicion sugerida</h2>
+              <HelpTitle
+                as="h2"
+                className="text-lg font-semibold"
+                help="Calcula sugerencias de reposicion segun ventas recientes y stock disponible. Selecciona filas de un mismo proveedor y crea la OC en un paso."
+              >
+                Reposicion sugerida
+              </HelpTitle>
               <p className="text-sm text-gray-600">Selecciona sugerencias del mismo proveedor para convertirlas en OC borrador.</p>
             </div>
             <button type="button" className="btn" onClick={createPoFromSuggestions} disabled={poSaving || poLoading}>
@@ -2082,6 +2279,7 @@ export default function ComprasPage() {
           </div>
         </div>
       </div>
+      ) : null}
 
       {createOpen ? (
         <div className="fixed inset-0 z-50 bg-black/40 p-3 md:p-6" onClick={closeCreateModal}>

@@ -4,6 +4,7 @@ import {
   deleteRetailVariante,
   getRetailAtributos,
   getRetailAtributoValores,
+  getRetailBarcodeLookup,
   getRetailComprasProveedores,
   getRetailOnlineFailedJobsSummary,
   getRetailProductos,
@@ -14,6 +15,7 @@ import {
   patchRetailProducto,
   patchRetailVariante,
   postRetailAtributo,
+  postRetailBarcodeIntake,
   postRetailProducto,
   postRetailProductosAjustePrecios,
   postRetailVarianteBarcodeAssociate,
@@ -166,9 +168,9 @@ function sameMoney(a, b) {
   return Number(a || 0) === Number(b || 0);
 }
 
-function HelpTitle({ as: Tag = 'h3', className = '', children, help }) {
+function HelpTitle({ as: Tag = 'h3', className = '', children, help, ...props }) {
   return (
-    <Tag className={`inline-flex items-center gap-2 ${className}`}>
+    <Tag {...props} className={`inline-flex items-center gap-2 ${className}`}>
       <span>{children}</span>
       <InfoHint text={help} />
     </Tag>
@@ -204,7 +206,7 @@ function buildOptionValues(rows) {
   return out;
 }
 
-const BARCODE_PRINT_PREFS_KEY = 'libreria_pos_barcode_print_prefs_v1';
+const BARCODE_PRINT_PREFS_KEY = 'supermercado_pos_barcode_print_prefs_v1';
 
 function buildOptionalOptionValues(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -331,6 +333,7 @@ const EMPTY_EDIT_VARIANT = {
   original_barcode_internal: '',
   price_store_ars: '0',
   price_online_ars: '0',
+  price_online_touched: false,
   cost_avg_ars: '0',
   stock_min: '0',
   stock_max: '0',
@@ -339,6 +342,8 @@ const EMPTY_EDIT_VARIANT = {
   plu: '',
   iva_rate_pct: '',
   active: true,
+  original_active: true,
+  activate_after_price: false,
   option_rows: [],
 };
 
@@ -378,6 +383,56 @@ const EMPTY_ONLINE_SYNC_SUMMARY = {
   lastUpdated: '',
 };
 
+const LOOKUP_STATUS_LABELS = {
+  local_match: 'Ya cargado',
+  metadata_found: 'Datos encontrados',
+  not_found: 'Sin datos',
+  created_pending: 'Pendiente de precio',
+  existing_active: 'Ya cargado',
+  existing_inactive: 'Inactivo',
+  existing_pending: 'Pendiente de precio',
+  metadata_missing: 'Sin datos',
+  provider_unavailable: 'Servicio no disponible',
+  invalid_code: 'Codigo invalido',
+};
+
+const PRODUCT_TABS = [
+  { id: 'intake', label: 'Ingreso por codigo' },
+  { id: 'catalog', label: 'Catalogo' },
+  { id: 'advanced', label: 'Herramientas avanzadas' },
+];
+
+function sourceStatusIsUnavailable(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  return ['error', 'timeout', 'unavailable', 'provider_unavailable', 'network_error'].some((value) =>
+    normalized.includes(value)
+  );
+}
+
+function lookupDisplayStatus(result) {
+  const status = String(result?.status || '').trim();
+  const localMatch = result?.local_match || result?.variant || result?.existing_variant;
+  if (['local_match', 'existing_active', 'existing_inactive'].includes(status)) {
+    if (localMatch?.product_active === false) {
+      return 'existing_inactive';
+    }
+    if (localMatch?.pending_price) {
+      return 'existing_pending';
+    }
+    return localMatch?.active && localMatch?.product_active !== false
+      ? 'existing_active'
+      : 'existing_inactive';
+  }
+  if (
+    status === 'not_found' &&
+    Array.isArray(result?.sources_checked) &&
+    result.sources_checked.some((source) => sourceStatusIsUnavailable(source?.status))
+  ) {
+    return 'provider_unavailable';
+  }
+  return status;
+}
+
 function barcodeConflictDetail(error) {
   const payload = error?.data || {};
   if (error?.status !== 409 || payload?.code !== 'barcode_conflict') {
@@ -401,19 +456,32 @@ export default function ProductosPage() {
   const [attrValuesByCode, setAttrValuesByCode] = useState({});
   const [variantes, setVariantes] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  const [activeTab, setActiveTab] = useState('intake');
   const [q, setQ] = useState('');
 
   const [prodForm, setProdForm] = useState({ ...EMPTY_PRODUCT });
   const [prodImageFile, setProdImageFile] = useState(null);
   const [attrForm, setAttrForm] = useState({ ...EMPTY_ATTR });
   const [varForm, setVarForm] = useState({ ...EMPTY_VARIANT });
+  const [lookupCode, setLookupCode] = useState('');
+  const [lookupResult, setLookupResult] = useState(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState('');
   const [editProductForm, setEditProductForm] = useState({ ...EMPTY_EDIT_PRODUCT });
   const [editAttrForm, setEditAttrForm] = useState({ ...EMPTY_EDIT_ATTR });
   const [editVariantForm, setEditVariantForm] = useState({ ...EMPTY_EDIT_VARIANT });
   const [editVariantOpen, setEditVariantOpen] = useState(false);
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [createMenuOpen, setCreateMenuOpen] = useState(true);
   const [duplicateStockPrompt, setDuplicateStockPrompt] = useState(null);
   const prodImageInputRef = useRef(null);
+  const lookupInputRef = useRef(null);
+  const lookupRequestIdRef = useRef(0);
+  const lookupBusyRef = useRef(null);
+  const intakeBusyRef = useRef(false);
+  const editVariantDialogRef = useRef(null);
+  const editVariantFirstInputRef = useRef(null);
+  const editVariantPriceInputRef = useRef(null);
+  const editVariantReturnFocusRef = useRef(null);
   const barcodeInputRef = useRef(null);
   const barcodeModalInputRef = useRef(null);
 
@@ -461,14 +529,16 @@ export default function ProductosPage() {
 
   async function loadAll(options = {}) {
     const refreshSyncStatus = options.refreshSyncStatus ?? canSeeOnlineSyncStatus;
+    const query = options.query ?? q;
+    let loaded = null;
     setLoading(true);
     setErr('');
     try {
       const [prods, attrs, attrVals, vars, sups] = await Promise.all([
-        getRetailProductos({ active: 1 }),
+        getRetailProductos(),
         getRetailAtributos(),
         getRetailAtributoValores({ limit: 500 }),
-        getRetailVariantes({ q, active: 1 }),
+        getRetailVariantes({ q: query }),
         getRetailComprasProveedores({ limit: 500 }),
       ]);
       setProductos(Array.isArray(prods) ? prods : []);
@@ -483,6 +553,10 @@ export default function ProductosPage() {
       setAttrValuesByCode(groupedValues);
       setVariantes(Array.isArray(vars) ? vars : []);
       setSuppliers(Array.isArray(sups) ? sups : []);
+      loaded = {
+        products: Array.isArray(prods) ? prods : [],
+        variants: Array.isArray(vars) ? vars : [],
+      };
     } catch (error) {
       setErr(errMsg(error));
     } finally {
@@ -491,11 +565,17 @@ export default function ProductosPage() {
     if (refreshSyncStatus) {
       await refreshOnlineSyncSummary();
     }
+    return loaded;
   }
 
   useEffect(() => {
     loadAll();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'intake') return;
+    focusLookupInput();
+  }, [activeTab]);
 
   useEffect(() => {
     if (!canSeeOnlineSyncStatus) return undefined;
@@ -573,6 +653,183 @@ export default function ProductosPage() {
       price_store_ars: defaults.store || prev.price_store_ars,
       price_online_ars: defaults.online || defaults.store || prev.price_online_ars,
     }));
+  }
+
+  function focusLookupInput(selectValue = false) {
+    window.setTimeout(() => {
+      const input = lookupInputRef.current;
+      if (!input) return;
+      input.focus({ preventScroll: true });
+      if (selectValue) input.select();
+    }, 0);
+  }
+
+  function onProductTabKeyDown(event, currentTabId) {
+    const currentIndex = PRODUCT_TABS.findIndex((tab) => tab.id === currentTabId);
+    if (currentIndex < 0) return;
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      nextIndex = (currentIndex + 1) % PRODUCT_TABS.length;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      nextIndex = (currentIndex - 1 + PRODUCT_TABS.length) % PRODUCT_TABS.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = PRODUCT_TABS.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    const nextTab = PRODUCT_TABS[nextIndex];
+    setActiveTab(nextTab.id);
+    window.setTimeout(() => {
+      document.getElementById(`productos-tab-${nextTab.id}`)?.focus();
+    }, 0);
+  }
+
+  function clearBarcodeLookup() {
+    lookupRequestIdRef.current += 1;
+    lookupBusyRef.current = null;
+    setLookupLoading(false);
+    setLookupCode('');
+    setLookupResult(null);
+    setLookupError('');
+    focusLookupInput();
+  }
+
+  function changeLookupCode(value) {
+    if (lookupBusyRef.current) {
+      lookupRequestIdRef.current += 1;
+      lookupBusyRef.current = null;
+      setLookupLoading(false);
+    }
+    setLookupCode(value);
+    setLookupResult(null);
+    setLookupError('');
+  }
+
+  async function runBarcodeLookup(e) {
+    e?.preventDefault?.();
+    const code = String(lookupCode || '').trim();
+    if (!code) {
+      setLookupError('Escanea o ingresa un codigo primero.');
+      focusLookupInput();
+      return;
+    }
+    if (lookupBusyRef.current) return;
+
+    const requestId = lookupRequestIdRef.current + 1;
+    lookupRequestIdRef.current = requestId;
+    lookupBusyRef.current = requestId;
+    setLookupLoading(true);
+    setLookupResult(null);
+    setLookupError('');
+    setErr('');
+    setMsg('');
+    try {
+      const resp = await getRetailBarcodeLookup(code);
+      if (requestId !== lookupRequestIdRef.current) return;
+      setLookupResult(resp || null);
+    } catch (error) {
+      if (requestId !== lookupRequestIdRef.current) return;
+      const responseStatus = String(error?.data?.status || error?.data?.code || '').trim();
+      if (['invalid_code', 'metadata_missing', 'provider_unavailable'].includes(responseStatus)) {
+        setLookupResult({
+          ...(error?.data || {}),
+          barcode: error?.data?.barcode || code,
+          status: responseStatus,
+        });
+      } else {
+        setLookupError(errMsg(error));
+      }
+    } finally {
+      if (lookupBusyRef.current === requestId) {
+        lookupBusyRef.current = null;
+      }
+      if (requestId === lookupRequestIdRef.current) {
+        setLookupLoading(false);
+        focusLookupInput(true);
+      }
+    }
+  }
+
+  function openAdvancedManual() {
+    const barcode = String(lookupResult?.barcode || lookupCode || '').trim();
+    setVarForm((prev) => ({
+      ...prev,
+      barcode_internal: barcode || prev.barcode_internal,
+    }));
+    setActiveTab('advanced');
+    setCreateMenuOpen(true);
+    setErr('');
+    setMsg('El codigo quedo precargado en la nueva presentacion. Completa el producto y los datos necesarios.');
+    window.setTimeout(() => barcodeInputRef.current?.focus(), 0);
+  }
+
+  async function createFromLookup() {
+    if (!canEdit || intakeBusyRef.current) return;
+    const barcode = String(lookupResult?.barcode || lookupCode || '').trim();
+    if (!barcode || lookupDisplayStatus(lookupResult) !== 'metadata_found') {
+      setLookupError('Primero escanea un codigo con datos disponibles.');
+      focusLookupInput();
+      return;
+    }
+
+    intakeBusyRef.current = true;
+    setSaving(true);
+    setLookupError('');
+    setErr('');
+    setMsg('');
+    try {
+      const resp = await postRetailBarcodeIntake(barcode);
+      setLookupResult((prev) => ({
+        ...(prev || {}),
+        ...(resp || {}),
+        barcode: resp?.barcode || prev?.barcode || barcode,
+        metadata: resp?.metadata || prev?.metadata || null,
+      }));
+      await loadAll({ refreshSyncStatus: false });
+    } catch (error) {
+      const responseStatus = String(error?.data?.status || error?.data?.code || '').trim();
+      if (['invalid_code', 'metadata_missing', 'provider_unavailable'].includes(responseStatus)) {
+        setLookupResult((prev) => ({
+          ...(prev || {}),
+          ...(error?.data || {}),
+          barcode: error?.data?.barcode || prev?.barcode || barcode,
+          status: responseStatus,
+        }));
+      } else {
+        const suggestionError = normalizeValueError(error);
+        setLookupError(suggestionError?.detail || barcodeConflictDetail(error));
+      }
+    } finally {
+      intakeBusyRef.current = false;
+      setSaving(false);
+      if (activeTab === 'intake') focusLookupInput(true);
+    }
+  }
+
+  async function showLookupInCatalog({ completePrice = false } = {}) {
+    const barcode = String(lookupResult?.barcode || lookupCode || '').trim();
+    const responseVariant =
+      lookupResult?.variant ||
+      lookupResult?.local_match ||
+      lookupResult?.created_variant ||
+      null;
+    const variantId = Number(responseVariant?.id || responseVariant?.variant_id || 0);
+
+    setActiveTab('catalog');
+    setQ(barcode);
+    const loaded = await loadAll({ query: barcode, refreshSyncStatus: false });
+    if (!completePrice) return;
+
+    const target =
+      loaded?.variants?.find((row) => Number(row.id) === variantId) ||
+      loaded?.variants?.[0] ||
+      responseVariant;
+    if (target?.id) {
+      openVariantEditor(target, { prepareActivation: true });
+    }
   }
 
   function openProductEditor(row) {
@@ -707,8 +964,10 @@ export default function ProductosPage() {
     }
   }
 
-  function openVariantEditor(row) {
+  function openVariantEditor(row, options = {}) {
     if (!row) return;
+    const prepareActivation = !!options.prepareActivation && !row.active && !!row.pending_price;
+    editVariantReturnFocusRef.current = document.activeElement;
     const rows = Array.isArray(row.option_values) && row.option_values.length
       ? row.option_values.map((opt) => ({
           attribute_code: attrCode(opt.attribute_code),
@@ -724,6 +983,7 @@ export default function ProductosPage() {
       original_barcode_internal: row.barcode_internal || '',
       price_store_ars: String(row.price_store_ars ?? 0),
       price_online_ars: String(row.price_online_ars ?? 0),
+      price_online_touched: Number(row.price_online_ars || 0) > 0 && !sameMoney(row.price_online_ars, row.price_store_ars),
       cost_avg_ars: String(row.cost_avg_ars ?? 0),
       stock_min: String(row.stock_min ?? 0),
       stock_max: String(row.stock_max ?? 0),
@@ -731,15 +991,58 @@ export default function ProductosPage() {
       is_weighted: !!row.is_weighted,
       plu: row.plu || '',
       iva_rate_pct: row.iva_rate_pct != null ? String(row.iva_rate_pct) : '',
-      active: !!row.active,
+      active: prepareActivation ? true : !!row.active,
+      original_active: !!row.active,
+      activate_after_price: prepareActivation,
       option_rows: rows,
     });
     setEditVariantOpen(true);
+    window.setTimeout(() => {
+      const target = prepareActivation
+        ? editVariantPriceInputRef.current
+        : editVariantFirstInputRef.current;
+      target?.focus();
+      if (prepareActivation) target?.select();
+    }, 0);
   }
 
   function closeVariantEditor() {
     setEditVariantOpen(false);
     setEditVariantForm({ ...EMPTY_EDIT_VARIANT });
+    window.setTimeout(() => {
+      const previous = editVariantReturnFocusRef.current;
+      if (previous?.isConnected) {
+        previous.focus();
+      } else {
+        document.getElementById('productos-tab-catalog')?.focus();
+      }
+    }, 0);
+  }
+
+  function onEditVariantDialogKeyDown(event) {
+    if (event.key === 'Escape' && !saving) {
+      event.preventDefault();
+      closeVariantEditor();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const dialog = editVariantDialogRef.current;
+    if (!dialog) return;
+    const focusable = Array.from(
+      dialog.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+      )
+    );
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   function availableAttrsForVariantEditRow(idx) {
@@ -801,13 +1104,23 @@ export default function ProductosPage() {
       return;
     }
 
+    const storePrice = Number(editVariantForm.price_store_ars || 0);
+    const onlinePrice =
+      editVariantForm.activate_after_price && Number(editVariantForm.price_online_ars || 0) <= 0
+        ? storePrice
+        : Number(editVariantForm.price_online_ars || 0);
+    if (!editVariantForm.original_active && editVariantForm.active && storePrice <= 0) {
+      setErr('Ingresa un precio local mayor a cero antes de activar esta presentacion.');
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
         display_name: editVariantForm.display_name || undefined,
         sku: editVariantForm.sku,
-        price_store_ars: Number(editVariantForm.price_store_ars || 0),
-        price_online_ars: Number(editVariantForm.price_online_ars || 0),
+        price_store_ars: storePrice,
+        price_online_ars: onlinePrice,
         cost_avg_ars: Number(editVariantForm.cost_avg_ars || 0),
         stock_min: Number(editVariantForm.stock_min || 0),
         stock_max: Number(editVariantForm.stock_max || 0),
@@ -1300,8 +1613,28 @@ export default function ProductosPage() {
   const canAddOptionRow = activeAttrCount === 0 || usedAttrs.size < activeAttrCount;
   const usedEditAttrs = new Set((editVariantForm.option_rows || []).map((row) => attrCode(row.attribute_code)).filter(Boolean));
   const canAddEditOptionRow = activeAttrCount === 0 || usedEditAttrs.size < activeAttrCount;
-  const totalProductos = productos.length;
-  const totalVariantes = variantes.length;
+  const activeProductos = productos.filter((row) => row?.active !== false);
+  const activeVariantes = variantes.filter((row) => row?.active !== false && row?.product_active !== false);
+  const pendingVariantes = variantes.filter((row) => row?.active === false && !!row?.pending_price);
+  const catalogQuery = String(q || '').trim().toLocaleLowerCase('es');
+  const catalogVariantProductIds = new Set(
+    variantes.map((row) => Number(row?.product_id || 0)).filter(Boolean)
+  );
+  const catalogProductos = !catalogQuery
+    ? productos
+    : productos.filter((row) => {
+        const searchable = [
+          row?.name,
+          row?.internal_name,
+          row?.brand,
+          row?.sku_prefix,
+        ]
+          .map((value) => String(value || '').toLocaleLowerCase('es'))
+          .join(' ');
+        return searchable.includes(catalogQuery) || catalogVariantProductIds.has(Number(row?.id || 0));
+      });
+  const totalProductos = activeProductos.length;
+  const totalVariantes = activeVariantes.length;
   const failedSyncTotal = Number(onlineSyncSummary?.failed_total || 0);
   const syncStatusAvailable = Boolean(onlineSyncSummary?.statusAvailable);
   const hasFailedSync = syncStatusAvailable && failedSyncTotal > 0;
@@ -1312,75 +1645,347 @@ export default function ProductosPage() {
   const detailRelatedVariants = detailVariant
     ? variantes.filter((row) => Number(row.product_id) === Number(detailVariant.product_id) && Number(row.id) !== Number(detailVariant.id))
     : [];
+  const lookupStatus = lookupDisplayStatus(lookupResult);
+  const lookupMetadata = lookupResult?.metadata || null;
+  const lookupLocalMatch =
+    lookupResult?.local_match ||
+    lookupResult?.variant ||
+    lookupResult?.existing_variant ||
+    null;
+  const lookupProduct = lookupResult?.product || null;
+  const lookupSuggestion = lookupResult?.suggestions || null;
+  const lookupAuthors = Array.isArray(lookupMetadata?.authors) ? lookupMetadata.authors.join(', ') : '';
+  const lookupProductName =
+    lookupLocalMatch?.producto ||
+    lookupLocalMatch?.product_name ||
+    lookupProduct?.name ||
+    lookupMetadata?.name ||
+    lookupSuggestion?.product?.name ||
+    'Producto';
+  const canCreateLookup =
+    canEdit &&
+    lookupStatus === 'metadata_found' &&
+    !!lookupSuggestion?.product?.name &&
+    !!lookupSuggestion?.variant?.barcode_internal;
 
   return (
     <div className="space-y-4">
-      <div className="card">
-        <HelpTitle
-          as="h1"
-          className="h1"
-          help="Aca se administra el catalogo interno. Un producto agrupa presentaciones o SKUs; cada una tiene stock, precio, barcode, PLU y unidad de medida para vender en caja."
+      <div className="card space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <HelpTitle
+              as="h1"
+              className="h1"
+              help="Administra el ingreso por escaneo, el catalogo y las herramientas de configuracion desde secciones separadas."
+            >
+              Productos
+            </HelpTitle>
+            <p className="mt-1 text-sm text-gray-600">
+              Escanea para dar de alta, consulta el catalogo o abre las herramientas avanzadas cuando las necesites.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-neutral-700">
+              Productos activos: {totalProductos}
+            </span>
+            <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-neutral-700">
+              Presentaciones activas: {totalVariantes}
+            </span>
+            {pendingVariantes.length ? (
+              <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 font-semibold text-amber-800">
+                Pendientes de precio: {pendingVariantes.length}
+              </span>
+            ) : null}
+            {canSeeOnlineSyncStatus ? (
+              <span
+                className={`rounded-full border px-3 py-1 ${
+                  hasFailedSync
+                    ? 'border-red-300 bg-red-50 font-semibold text-red-700'
+                    : 'border-neutral-200 bg-neutral-50 text-neutral-700'
+                }`}
+              >
+                {onlineSyncSummary.loading
+                  ? 'Sync TN: actualizando...'
+                  : syncStatusAvailable
+                    ? (hasFailedSync ? `Sync TN fallidos: ${failedSyncTotal}` : 'Sync TN: OK')
+                    : 'Sync TN: sin estado'}
+              </span>
+            ) : null}
+            {canSeeOnlineSyncStatus && canGoOnline ? (
+              <Link
+                to="/online"
+                className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-neutral-700 hover:bg-neutral-100"
+              >
+                Ver Online
+              </Link>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          className="grid grid-cols-1 gap-2 rounded-xl bg-neutral-100 p-1 sm:grid-cols-3"
+          role="tablist"
+          aria-label="Secciones de productos"
         >
-          Productos y presentaciones
-        </HelpTitle>
-        <p className="text-sm text-gray-600">
-          Catalogo de librería con SKUs, barcodes multiples, stock y precios por presentacion.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-neutral-700">
-            Productos activos: {totalProductos}
-          </span>
-          <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-neutral-700">
-            Presentaciones activas: {totalVariantes}
-          </span>
-          {canSeeOnlineSyncStatus ? (
-            <span
-              className={`rounded-full border px-3 py-1 ${
-                hasFailedSync
-                  ? 'border-red-300 bg-red-50 text-red-700 font-semibold'
-                  : 'border-neutral-200 bg-neutral-50 text-neutral-700'
+          {PRODUCT_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              id={`productos-tab-${tab.id}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={`productos-panel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+                activeTab === tab.id
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-neutral-600 hover:bg-white/70 hover:text-neutral-900'
               }`}
+              onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(event) => onProductTabKeyDown(event, tab.id)}
             >
-              {syncStatusAvailable ? (hasFailedSync ? `Sync TN fallidos: ${failedSyncTotal}` : 'Sync TN: OK') : 'Sync TN: sin estado'}
-            </span>
-          ) : null}
-          {canSeeOnlineSyncStatus && canGoOnline ? (
-            <Link
-              to="/online"
-              className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-neutral-700 hover:bg-neutral-100"
-            >
-              Ver Online
-            </Link>
-          ) : null}
-          {canSeeOnlineSyncStatus && onlineSyncSummary.loading ? (
-            <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-neutral-500">
-              Sync TN: actualizando...
-            </span>
-          ) : null}
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {canEdit ? (
-        <div className="card space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <HelpTitle
-              as="h2"
-              className="text-lg font-semibold"
-              help="Desde este bloque se cargan las piezas basicas del catalogo: primero producto, luego atributos si faltan, y finalmente presentaciones vendibles."
-            >
-              Altas
-            </HelpTitle>
+      {activeTab === 'intake' ? (
+        <div
+          id="productos-panel-intake"
+          role="tabpanel"
+          aria-labelledby="productos-tab-intake"
+          className="mx-auto max-w-3xl"
+        >
+          <form className="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm" onSubmit={runBarcodeLookup}>
+            <div className="border-b border-blue-100 bg-blue-50/70 px-5 py-4 sm:px-6">
+              <HelpTitle
+                as="h2"
+                className="text-xl font-semibold text-neutral-950"
+                help="El lector escribe el ISBN o EAN y envia Enter. La busqueda no cambia el stock."
+              >
+                Escanea el codigo del producto
+              </HelpTitle>
+              <p className="mt-1 text-sm text-neutral-600">
+                Revisa el resultado y confirma el alta. Las cantidades se ingresan despues desde Compras.
+              </p>
+            </div>
+
+            <div className="space-y-4 p-5 sm:p-6">
+
+              <div className="space-y-2">
+                <label htmlFor="productos-barcode-intake" className="block text-sm font-semibold text-neutral-900">
+                  ISBN o EAN
+                </label>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <input
+                    id="productos-barcode-intake"
+                    ref={lookupInputRef}
+                    className="input h-14 font-mono text-lg tracking-wide"
+                    value={lookupCode}
+                    onChange={(e) => changeLookupCode(e.target.value)}
+                    placeholder="Escanea o escribe el codigo"
+                    inputMode="text"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={lookupLoading || saving}
+                  />
+                  <button className="btn min-h-14 px-7" disabled={lookupLoading || saving} type="submit">
+                    {lookupLoading ? 'Buscando...' : 'Buscar'}
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
+                  <span>El lector envia Enter automaticamente. Tambien puedes escribir el codigo.</span>
+                  {lookupCode || lookupResult ? (
+                    <button
+                      type="button"
+                      className="font-semibold text-neutral-700 underline-offset-2 hover:underline"
+                      onClick={clearBarcodeLookup}
+                      disabled={saving}
+                    >
+                      Limpiar
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="min-h-5 text-sm" aria-live="polite" aria-atomic="true">
+                {lookupLoading ? <p className="font-medium text-blue-700">Consultando el codigo...</p> : null}
+                {!lookupLoading && lookupError ? <p className="font-medium text-red-700">{lookupError}</p> : null}
+                {!lookupLoading && !lookupError && !lookupResult ? (
+                  <p className="text-neutral-500">Listo para escanear.</p>
+                ) : null}
+              </div>
+
+              {lookupResult ? (
+                <div
+                  className={`rounded-xl border p-4 text-sm ${
+                    lookupStatus === 'provider_unavailable'
+                      ? 'border-red-200 bg-red-50'
+                      : ['created_pending', 'existing_inactive', 'existing_pending'].includes(lookupStatus)
+                        ? 'border-amber-200 bg-amber-50'
+                        : 'border-neutral-200 bg-neutral-50'
+                  }`}
+                  aria-live="polite"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-neutral-950">
+                        {lookupResult.detail ||
+                          (lookupStatus === 'created_pending'
+                            ? 'Producto creado y pendiente de precio.'
+                            : lookupStatus === 'provider_unavailable'
+                              ? 'No se pudo consultar la fuente de datos.'
+                              : 'Resultado del codigo')}
+                      </p>
+                      <p className="mt-0.5 font-mono text-xs text-neutral-500">{lookupResult.barcode || lookupCode}</p>
+                    </div>
+                    <span className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-semibold text-neutral-700">
+                      {LOOKUP_STATUS_LABELS[lookupStatus] || lookupStatus}
+                    </span>
+                  </div>
+
+                  {['local_match', 'existing_active', 'existing_inactive', 'existing_pending'].includes(lookupStatus) && lookupLocalMatch ? (
+                    <div className="mt-4 space-y-3">
+                      <div>
+                        <p className="text-base font-semibold text-neutral-950">{lookupProductName}</p>
+                        <p className="mt-1 text-neutral-600">
+                          Precio {money(lookupLocalMatch.price_store_ars)} · Stock {Number(lookupLocalMatch.stock_on_hand || 0)}
+                        </p>
+                        <p className="text-xs text-neutral-500">SKU {lookupLocalMatch.sku || '-'}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {canEdit && lookupStatus === 'existing_pending' && lookupLocalMatch.product_active !== false ? (
+                          <button type="button" className="btn" onClick={() => showLookupInCatalog({ completePrice: true })}>
+                            Completar precio
+                          </button>
+                        ) : null}
+                        <button type="button" className="btn-secondary" onClick={() => showLookupInCatalog()}>
+                          Ver en catalogo
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {lookupStatus === 'metadata_found' && lookupMetadata ? (
+                    <div className="mt-4">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-4 rounded-lg border border-blue-100 bg-white p-3">
+                        <div className="min-w-0">
+                          <p className="text-base font-semibold text-neutral-950">{lookupMetadata.name}</p>
+                          <p className="mt-1 text-neutral-600">
+                            {lookupAuthors ? `${lookupAuthors} · ` : ''}
+                            {lookupMetadata.publisher || lookupMetadata.brand || 'Editorial o marca sin especificar'}
+                          </p>
+                          <p className="mt-2 text-xs text-neutral-500">
+                            Categoria: {lookupMetadata.subcategory || 'Sin especificar'}
+                          </p>
+                        </div>
+                        {lookupMetadata.image_url ? (
+                          <img
+                            className="h-24 w-16 rounded border object-cover"
+                            src={lookupMetadata.image_url}
+                            alt={lookupMetadata.name || 'Producto encontrado'}
+                          />
+                        ) : null}
+                      </div>
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          className="btn mt-3 w-full sm:w-auto"
+                          disabled={!canCreateLookup || saving}
+                          onClick={createFromLookup}
+                        >
+                          {saving ? 'Creando...' : 'Crear producto pendiente'}
+                        </button>
+                      ) : (
+                        <p className="mt-3 text-amber-800">Tu usuario puede consultar el codigo, pero no crear productos.</p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {lookupStatus === 'created_pending' ? (
+                    <div className="mt-4 space-y-3">
+                      <div>
+                        <p className="text-base font-semibold text-neutral-950">{lookupProductName}</p>
+                        <p className="mt-1 text-neutral-700">
+                          Quedo fuera de Caja y no se enviara a Tienda Nube hasta que cargues el precio y lo actives.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {canEdit ? (
+                          <button type="button" className="btn" onClick={() => showLookupInCatalog({ completePrice: true })}>
+                            Completar precio
+                          </button>
+                        ) : null}
+                        <button type="button" className="btn-secondary" onClick={() => showLookupInCatalog()}>
+                          Ver en catalogo
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {['not_found', 'metadata_missing'].includes(lookupStatus) ? (
+                    <div className="mt-4 space-y-3">
+                      <p className="text-neutral-700">
+                        No se creara ningun producto automaticamente. Puedes cargarlo manualmente conservando este codigo.
+                      </p>
+                      {canEdit ? (
+                        <button type="button" className="btn-secondary" onClick={openAdvancedManual}>
+                          Abrir alta manual
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {lookupStatus === 'provider_unavailable' ? (
+                    <div className="mt-4 space-y-3 text-red-900">
+                      <p>La consulta externa fallo temporalmente. El catalogo local no fue modificado.</p>
+                      <button type="button" className="btn-secondary" onClick={runBarcodeLookup} disabled={lookupLoading}>
+                        Reintentar
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {activeTab === 'advanced' && !canEdit ? (
+        <div
+          id="productos-panel-advanced"
+          role="tabpanel"
+          aria-labelledby="productos-tab-advanced"
+          className="card text-sm text-amber-800"
+        >
+          Tu usuario no tiene permiso para modificar la configuracion del catalogo.
+        </div>
+      ) : null}
+
+      {activeTab === 'advanced' && canEdit ? (
+        <div
+          id="productos-panel-advanced"
+          role="tabpanel"
+          aria-labelledby="productos-tab-advanced"
+          className="card space-y-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Altas manuales y combinaciones</h2>
+              <p className="text-sm text-neutral-500">Usa estos formularios cuando el alta por escaneo no sea suficiente.</p>
+            </div>
             <button
               type="button"
-              className="btn"
+              className="btn-secondary"
               aria-expanded={createMenuOpen}
               aria-controls="productos-create-panel"
               onClick={() => setCreateMenuOpen((prev) => !prev)}
             >
-              Nuevo
+              {createMenuOpen ? 'Ocultar formularios' : 'Mostrar formularios'}
             </button>
           </div>
-
           {createMenuOpen ? (
             <div id="productos-create-panel" className="space-y-4">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1388,7 +1993,7 @@ export default function ProductosPage() {
                   <HelpTitle
                     as="h3"
                     className="text-lg font-semibold"
-                    help="Crea el item base, por ejemplo Cuaderno universitario. Agrupa sus presentaciones, codigos de barra y reglas de stock bajo el mismo producto."
+                    help="Crea el item base, por ejemplo un libro, cuaderno o agenda. Agrupa sus presentaciones, codigos de barra y reglas de stock bajo el mismo producto."
                   >
                     Nuevo producto
                   </HelpTitle>
@@ -1401,7 +2006,7 @@ export default function ProductosPage() {
                   />
                   <input
                     className="input"
-                    placeholder="Prefijo SKU (ej COCA225)"
+                    placeholder="Prefijo SKU (ej ISBN978 o CUAD-A4)"
                     value={prodForm.sku_prefix}
                     onChange={(e) => setProdForm((v) => ({ ...v, sku_prefix: e.target.value }))}
                   />
@@ -1531,7 +2136,7 @@ export default function ProductosPage() {
                       required
                     >
                       <option value="">Seleccionar producto</option>
-                      {productos.map((p) => (
+                      {activeProductos.map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
@@ -1541,19 +2146,19 @@ export default function ProductosPage() {
                     <label className="block text-xs text-gray-500">SKU (opcional)</label>
                     <input
                       className="input"
-                      placeholder="Ej: COCA225"
+                      placeholder="Ej: ISBN-000123"
                       value={varForm.sku}
                       onChange={(e) => setVarForm((v) => ({ ...v, sku: e.target.value }))}
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-xs text-gray-500">Codigo de barras (opcional)</label>
+                    <label className="block text-xs text-gray-500">ISBN/EAN (opcional)</label>
                     <div className="flex items-center gap-2">
                       <input
                         ref={barcodeInputRef}
                         className="input flex-1"
-                        placeholder="Escanear o escribir EAN-13 (si lo dejas vacio, se genera)"
+                        placeholder="Escanear o escribir ISBN/EAN-13 (si lo dejas vacio, se genera)"
                         value={varForm.barcode_internal}
                         onChange={(e) => setVarForm((v) => ({ ...v, barcode_internal: e.target.value }))}
                         onKeyDown={(e) => {
@@ -1568,11 +2173,11 @@ export default function ProductosPage() {
                         Escanear
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500">Solo EAN-13 para nuevos codigos. Si queda vacio, el sistema genera automaticamente.</p>
+                    <p className="text-xs text-gray-500">Para libros se usa el ISBN/EAN impreso. Si queda vacio, el sistema genera un EAN-13 interno.</p>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-xs text-gray-500">Proveedor para autogenerar (opcional)</label>
+                    <label className="block text-xs text-gray-500">Proveedor/editorial para autogenerar (opcional)</label>
                     <select
                       className="input"
                       value={varForm.supplier_id || ''}
@@ -1674,23 +2279,6 @@ export default function ProductosPage() {
                       onChange={(e) => setVarForm((v) => ({ ...v, unit_of_measure: e.target.value }))}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="block text-xs text-gray-500">PLU</label>
-                    <input
-                      className="input"
-                      placeholder="Codigo balanza"
-                      value={varForm.plu}
-                      onChange={(e) => setVarForm((v) => ({ ...v, plu: e.target.value }))}
-                    />
-                  </div>
-                  <label className="flex items-center gap-2 rounded border border-neutral-200 px-3 py-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={!!varForm.is_weighted}
-                      onChange={(e) => setVarForm((v) => ({ ...v, is_weighted: e.target.checked, unit_of_measure: e.target.checked ? 'kg' : v.unit_of_measure }))}
-                    />
-                    Pesable
-                  </label>
                 </div>
 
                 <VariantAttributeRows
@@ -1733,7 +2321,7 @@ export default function ProductosPage() {
 
               <VariantBatchCreator
                 title="Alta masiva por combinaciones"
-                products={productos}
+                products={activeProductos}
                 attributes={atributos}
                 attributeValuesByCode={attrValuesByCode}
                 suppliers={suppliers}
@@ -1745,15 +2333,22 @@ export default function ProductosPage() {
         </div>
       ) : null}
 
-      <div className="card grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-        <div className="md:col-span-3">
-          <label className="block text-xs text-gray-500 mb-1">Buscar presentacion</label>
-          <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="SKU, barcode, PLU o nombre producto" />
+      {activeTab === 'catalog' ? (
+        <div
+          id="productos-panel-catalog"
+          role="tabpanel"
+          aria-labelledby="productos-tab-catalog"
+          className="card grid grid-cols-1 items-end gap-3 md:grid-cols-4"
+        >
+          <div className="md:col-span-3">
+            <label className="mb-1 block text-xs text-gray-500">Buscar en el catalogo</label>
+            <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="ISBN/EAN, SKU o nombre" />
+          </div>
+          <button className="px-3 py-2 rounded border" type="button" onClick={() => loadAll()} disabled={loading}>Filtrar</button>
         </div>
-        <button className="px-3 py-2 rounded border" type="button" onClick={loadAll} disabled={loading}>Filtrar</button>
-      </div>
+      ) : null}
 
-      {canEdit ? (
+      {activeTab === 'advanced' && canEdit ? (
         <div className="card space-y-3">
           <HelpTitle
             as="h2"
@@ -1829,9 +2424,10 @@ export default function ProductosPage() {
         </div>
       ) : null}
 
-      {canEdit ? (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <div className="card space-y-3">
+      {canEdit && (activeTab === 'catalog' || activeTab === 'advanced') ? (
+        <div className="space-y-4">
+          {activeTab === 'catalog' ? (
+            <div className="card space-y-3">
             <HelpTitle
               as="h2"
               className="text-lg font-semibold"
@@ -1851,7 +2447,7 @@ export default function ProductosPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {productos.map((row) => (
+                  {catalogProductos.map((row) => (
                     <tr key={row.id} className="border-b last:border-b-0">
                       <td className="py-2 pr-3">{row.name}</td>
                       <td className="py-2 pr-3">{row.sku_prefix || '-'}</td>
@@ -1877,7 +2473,7 @@ export default function ProductosPage() {
                       </td>
                     </tr>
                   ))}
-                  {!productos.length ? (
+                  {!catalogProductos.length ? (
                     <tr>
                       <td colSpan={5} className="py-3 text-gray-500">Sin productos para mostrar.</td>
                     </tr>
@@ -1997,9 +2593,11 @@ export default function ProductosPage() {
                 </div>
               </div>
             ) : null}
-          </div>
+            </div>
+          ) : null}
 
-          <div className="card space-y-3">
+          {activeTab === 'advanced' ? (
+            <div className="card space-y-3">
             <HelpTitle
               as="h2"
               className="text-lg font-semibold"
@@ -2095,20 +2693,24 @@ export default function ProductosPage() {
                 </div>
               </div>
             ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
+      {activeTab === 'catalog' ? (
       <div className="card">
         <div className="flex items-center justify-between mb-2">
           <HelpTitle
             as="h2"
             className="text-lg font-semibold"
-            help="Lista de presentaciones vendibles. Cada presentacion descuenta stock y puede tener barcode propio, PLU y unidad de medida."
+            help="Muestra presentaciones activas e inactivas. Las pendientes de precio no aparecen en Caja ni se sincronizan con Tienda Nube."
           >
-            Presentaciones / SKUs
+            Presentaciones y pendientes
           </HelpTitle>
-          <span className="text-xs text-gray-500">Atributos cargados: {atributos.length}</span>
+          <span className="text-xs text-gray-500">
+            {pendingVariantes.length ? `${pendingVariantes.length} pendientes de precio` : 'Sin pendientes de precio'}
+          </span>
         </div>
         {loading ? <p className="text-sm text-gray-500">Cargando...</p> : null}
         <div className="overflow-auto">
@@ -2123,6 +2725,7 @@ export default function ProductosPage() {
                 <th className="py-2 pr-3">Stock</th>
                 <th className="py-2 pr-3">Ajuste</th>
                 <th className="py-2 pr-3">Barcodes</th>
+                <th className="py-2 pr-3">Estado</th>
                 <th className="py-2 pr-3">Acciones</th>
               </tr>
             </thead>
@@ -2131,7 +2734,12 @@ export default function ProductosPage() {
                 const supplier = variantSupplierSummary(row);
                 const primary = primaryBarcode(row);
                 return (
-                  <tr key={row.id} className="border-b last:border-b-0 align-top">
+                  <tr
+                    key={row.id}
+                    className={`border-b align-top last:border-b-0 ${
+                      row.active && row.product_active !== false ? '' : 'bg-amber-50/60'
+                    }`}
+                  >
                   <td className="py-2 pr-3">
                     {row.product_image_url ? (
                       <img
@@ -2249,6 +2857,33 @@ export default function ProductosPage() {
                     </div>
                   </td>
                   <td className="py-2 pr-3">
+                    {row.active && row.product_active !== false ? (
+                      <span className="inline-flex rounded-full bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">
+                        Activa
+                      </span>
+                    ) : (
+                      <div className="min-w-[145px] space-y-2">
+                        <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800">
+                          {row.product_active === false
+                            ? 'Producto oculto'
+                            : row.pending_price
+                              ? 'Pendiente de precio'
+                              : 'Inactiva'}
+                        </span>
+                        {canEdit && row.pending_price && row.product_active !== false ? (
+                          <button
+                            type="button"
+                            className="block rounded border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-50"
+                            onClick={() => openVariantEditor(row, { prepareActivation: true })}
+                            disabled={saving}
+                          >
+                            Completar precio
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  </td>
+                  <td className="py-2 pr-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
@@ -2285,13 +2920,14 @@ export default function ProductosPage() {
               })}
               {!variantes.length && !loading ? (
                 <tr>
-                  <td className="py-3 text-gray-500" colSpan={9}>Sin presentaciones para mostrar.</td>
+                  <td className="py-3 text-gray-500" colSpan={10}>Sin presentaciones para mostrar.</td>
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
       </div>
+      ) : null}
 
       {detailVariant ? (
         <div className="fixed inset-0 z-50 bg-black/40 p-3 md:p-6 overflow-auto">
@@ -2483,13 +3119,23 @@ export default function ProductosPage() {
       ) : null}
 
       {editVariantOpen ? (
-        <div className="fixed inset-0 z-50 bg-black/40 p-3 md:p-6 overflow-auto">
-          <div className="mx-auto w-full max-w-4xl rounded-lg border border-neutral-200 bg-white p-4 space-y-3">
+        <div
+          className="fixed inset-0 z-50 bg-black/40 p-3 md:p-6 overflow-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="productos-edit-variant-title"
+          onKeyDown={onEditVariantDialogKeyDown}
+        >
+          <div
+            ref={editVariantDialogRef}
+            className="mx-auto w-full max-w-4xl rounded-lg border border-neutral-200 bg-white p-4 space-y-3"
+          >
             <div className="flex items-center justify-between gap-3">
               <HelpTitle
+                id="productos-edit-variant-title"
                 as="h3"
                 className="text-lg font-semibold"
-                help="Actualiza la presentacion vendible: SKU, precios, unidad, PLU, stock minimo/maximo, estado y atributos. El barcode se administra aparte para no bloquear estos cambios."
+                help="Actualiza la presentacion vendible: SKU, precios, unidad, stock minimo, estado y atributos. El barcode se administra aparte para no bloquear estos cambios."
               >
                 Editar presentacion #{editVariantForm?.id || ''}
               </HelpTitle>
@@ -2499,86 +3145,114 @@ export default function ProductosPage() {
             </div>
 
             <form className="space-y-3" onSubmit={saveVariantEditor}>
+              {editVariantForm.activate_after_price ? (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-semibold">Completa el precio para habilitar la venta</p>
+                  <p className="mt-1">
+                    Al guardar, esta presentacion quedara activa. El precio online tomara el precio local si sigue en cero.
+                  </p>
+                </div>
+              ) : null}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <input
-                  className="input"
-                  value={editVariantForm.display_name}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, display_name: e.target.value }))}
-                  placeholder="Display name"
-                />
-                <input
-                  className="input"
-                  value={editVariantForm.sku}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, sku: e.target.value }))}
-                  placeholder="SKU"
-                  required
-                />
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editVariantForm.price_store_ars}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, price_store_ars: e.target.value }))}
-                  placeholder="Precio local"
-                />
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editVariantForm.price_online_ars}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, price_online_ars: e.target.value }))}
-                  placeholder="Precio online"
-                />
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editVariantForm.cost_avg_ars}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, cost_avg_ars: e.target.value }))}
-                  placeholder="Costo promedio"
-                />
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="0.001"
-                  value={editVariantForm.stock_min}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, stock_min: e.target.value }))}
-                  placeholder="Stock minimo"
-                />
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="0.001"
-                  value={editVariantForm.stock_max}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, stock_max: e.target.value }))}
-                  placeholder="Stock maximo sugerido"
-                />
-                <input
-                  className="input"
-                  value={editVariantForm.unit_of_measure}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, unit_of_measure: e.target.value }))}
-                  placeholder="Unidad (unit, kg, litro...)"
-                />
-                <input
-                  className="input"
-                  value={editVariantForm.plu}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, plu: e.target.value }))}
-                  placeholder="PLU balanza"
-                />
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editVariantForm.iva_rate_pct}
-                  onChange={(e) => setEditVariantForm((prev) => ({ ...prev, iva_rate_pct: e.target.value }))}
-                  placeholder="IVA %"
-                />
+                <div className="space-y-1">
+                  <label className="block text-xs text-gray-500">Nombre para mostrar (opcional)</label>
+                  <input
+                    ref={editVariantFirstInputRef}
+                    className="input"
+                    value={editVariantForm.display_name}
+                    onChange={(e) => setEditVariantForm((prev) => ({ ...prev, display_name: e.target.value }))}
+                    placeholder="Display name"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs text-gray-500">SKU</label>
+                  <input
+                    className="input"
+                    value={editVariantForm.sku}
+                    onChange={(e) => setEditVariantForm((prev) => ({ ...prev, sku: e.target.value }))}
+                    placeholder="SKU"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs text-gray-500">Precio local</label>
+                  <input
+                    ref={editVariantPriceInputRef}
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editVariantForm.price_store_ars}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setEditVariantForm((prev) => ({
+                        ...prev,
+                        price_store_ars: value,
+                        price_online_ars: prev.price_online_touched ? prev.price_online_ars : value,
+                      }));
+                    }}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs text-gray-500">Precio online</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editVariantForm.price_online_ars}
+                    onChange={(e) =>
+                      setEditVariantForm((prev) => ({ ...prev, price_online_ars: e.target.value, price_online_touched: true }))
+                    }
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs text-gray-500">Costo promedio</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editVariantForm.cost_avg_ars}
+                    onChange={(e) => setEditVariantForm((prev) => ({ ...prev, cost_avg_ars: e.target.value }))}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs text-gray-500">Stock minimo</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={editVariantForm.stock_min}
+                    onChange={(e) => setEditVariantForm((prev) => ({ ...prev, stock_min: e.target.value }))}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs text-gray-500">Unidad</label>
+                  <input
+                    className="input"
+                    value={editVariantForm.unit_of_measure}
+                    onChange={(e) => setEditVariantForm((prev) => ({ ...prev, unit_of_measure: e.target.value }))}
+                    placeholder="unit, kg, g, litro"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs text-gray-500">IVA %</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editVariantForm.iva_rate_pct}
+                    onChange={(e) => setEditVariantForm((prev) => ({ ...prev, iva_rate_pct: e.target.value }))}
+                    placeholder="0.00"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-col gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600 md:flex-row md:items-center md:justify-between">
@@ -2612,20 +3286,6 @@ export default function ProductosPage() {
                   />
                   Activa
                 </label>
-                <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
-                  <input
-                    type="checkbox"
-                    checked={!!editVariantForm.is_weighted}
-                    onChange={(e) =>
-                      setEditVariantForm((prev) => ({
-                        ...prev,
-                        is_weighted: e.target.checked,
-                        unit_of_measure: e.target.checked ? 'kg' : prev.unit_of_measure,
-                      }))
-                    }
-                  />
-                  Producto pesable
-                </label>
               </div>
 
               <VariantAttributeRows
@@ -2649,7 +3309,7 @@ export default function ProductosPage() {
 
               <div className="flex gap-2">
                 <button className="btn" type="submit" disabled={saving}>
-                  Guardar cambios
+                  {editVariantForm.activate_after_price ? 'Guardar y activar' : 'Guardar cambios'}
                 </button>
                 <button type="button" className="px-3 py-2 rounded border" onClick={closeVariantEditor}>
                   Cancelar

@@ -70,7 +70,7 @@ export default function Sidebar({
 
       <aside
         id="app-sidebar"
-        className={`fixed inset-y-0 left-0 z-50 w-72 transform border-r border-neutral-200 bg-white text-sm shadow-xl transition-transform duration-200 ease-out md:static md:w-60 md:translate-x-0 md:shadow-none ${
+        className={`fixed inset-y-0 left-0 z-50 w-72 transform border-r border-neutral-200 bg-white text-sm shadow-xl transition-transform duration-200 ease-out md:static md:w-56 md:translate-x-0 md:shadow-none ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >

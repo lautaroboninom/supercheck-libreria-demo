@@ -1376,7 +1376,109 @@ function dashboard(state) {
   };
 }
 
-function routeDemo(state, method, pathname, params, payload) {
+const BOOK_EAN_PREFIXES = ['978', '979'];
+const isBookCode = (code) => BOOK_EAN_PREFIXES.some((prefix) => code.startsWith(prefix));
+
+async function fetchWithTimeout(url, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function lookupGoogleBooks(isbn) {
+  try {
+    const res = await fetchWithTimeout(
+      `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&maxResults=1&printType=books&projection=lite`
+    );
+    if (!res.ok) return { metadata: null, error: true };
+    const data = await res.json();
+    const info = data.items?.[0]?.volumeInfo;
+    if (!info?.title) return { metadata: null, error: false };
+    return {
+      error: false,
+      metadata: {
+        name: info.title,
+        authors: Array.isArray(info.authors) ? info.authors : [],
+        publisher: info.publisher || '',
+        brand: info.publisher || '',
+        subcategory: info.categories?.[0] || 'Libro',
+        image_url: info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || '',
+      },
+    };
+  } catch {
+    return { metadata: null, error: true };
+  }
+}
+
+async function lookupOpenLibrary(isbn) {
+  try {
+    const res = await fetchWithTimeout(
+      `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&jscmd=data&format=json`
+    );
+    if (!res.ok) return { metadata: null, error: true };
+    const data = await res.json();
+    const book = data[`ISBN:${isbn}`];
+    if (!book?.title) return { metadata: null, error: false };
+    return {
+      error: false,
+      metadata: {
+        name: book.title,
+        authors: (book.authors || []).map((a) => a.name),
+        publisher: book.publishers?.[0]?.name || '',
+        brand: book.publishers?.[0]?.name || '',
+        subcategory: book.subjects?.[0]?.name || 'Libro',
+        image_url: book.cover?.medium || book.cover?.small || '',
+      },
+    };
+  } catch {
+    return { metadata: null, error: true };
+  }
+}
+
+async function lookupOpenFoodFacts(code) {
+  try {
+    const res = await fetchWithTimeout(`https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(code)}`);
+    if (!res.ok) return { metadata: null, error: true };
+    const data = await res.json();
+    const product = data?.product;
+    if (data?.status !== 1 || !product?.product_name) return { metadata: null, error: false };
+    return {
+      error: false,
+      metadata: {
+        name: product.product_name,
+        authors: [],
+        publisher: product.brands || '',
+        brand: product.brands || '',
+        subcategory: (product.categories_tags?.[0] || '').replace(/^\w+:/, ''),
+        image_url: product.image_front_small_url || product.image_url || '',
+      },
+    };
+  } catch {
+    return { metadata: null, error: true };
+  }
+}
+
+// Consulta fuentes externas reales (gratuitas, sin API key) para simular en el navegador
+// el mismo comportamiento que el backend real: Google Books/Open Library para libros
+// (ISBN, prefijo 978/979) y Open Food Facts para el resto de codigos de barra.
+async function lookupExternalBarcodeMetadata(code) {
+  const providers = isBookCode(code)
+    ? [() => lookupGoogleBooks(code), () => lookupOpenLibrary(code)]
+    : [() => lookupOpenFoodFacts(code)];
+  let anyError = false;
+  for (const run of providers) {
+    const { metadata, error } = await run();
+    if (metadata) return { metadata, failed: false };
+    if (error) anyError = true;
+  }
+  return { metadata: null, failed: anyError };
+}
+
+async function routeDemo(state, method, pathname, params, payload) {
   if (pathname === '/api/ping/') return { ok: true, demo: true };
   if (pathname === '/api/auth/csrf/') return { ok: true, csrfToken: 'demo' };
   if (pathname === '/api/auth/session/') {
@@ -1519,6 +1621,102 @@ function routeDemo(state, method, pathname, params, payload) {
     if (primary) variant.barcode_internal = primary.barcode;
     saveState(state);
     return { variant, barcodes: variant.barcodes };
+  }
+  match = pathname.match(/^\/api\/retail\/barcodes\/lookup\/(.+)\/$/);
+  if (match && method === 'GET') {
+    const code = decodeURIComponent(match[1]).trim();
+    if (!code) throw makeError(400, 'Codigo invalido', { status: 'invalid_code', barcode: code });
+    const localVariant = findVariantByCode(state, code);
+    if (localVariant) {
+      return {
+        status: 'local_match',
+        barcode: code,
+        detail: 'Ya existe una presentacion cargada con este codigo.',
+        local_match: localVariant,
+      };
+    }
+    const { metadata, failed } = await lookupExternalBarcodeMetadata(code);
+    if (metadata) {
+      return {
+        status: 'metadata_found',
+        barcode: code,
+        detail: 'Se encontraron datos del producto.',
+        metadata,
+        suggestions: { product: { name: metadata.name }, variant: { barcode_internal: code } },
+      };
+    }
+    if (failed) {
+      return {
+        status: 'provider_unavailable',
+        barcode: code,
+        detail: 'No se pudo consultar la fuente de datos externa.',
+        sources_checked: [{ source: 'externo', status: 'error' }],
+      };
+    }
+    return {
+      status: 'not_found',
+      barcode: code,
+      detail: 'No se encontraron datos para este codigo.',
+      sources_checked: [{ source: 'externo', status: 'not_found' }],
+    };
+  }
+  match = pathname.match(/^\/api\/retail\/barcodes\/intake\/$/);
+  if (match && method === 'POST') {
+    const code = normalizeText(payload.barcode);
+    if (!code) throw makeError(400, 'Codigo invalido', { status: 'invalid_code', barcode: code });
+    const existing = findVariantByCode(state, code);
+    if (existing) {
+      return {
+        status: existing.active !== false ? 'existing_active' : 'existing_inactive',
+        barcode: code,
+        detail: 'Este codigo ya esta cargado en el catalogo.',
+        local_match: existing,
+      };
+    }
+    const { metadata, failed } = await lookupExternalBarcodeMetadata(code);
+    if (!metadata) {
+      if (failed) {
+        throw makeError(503, 'No se pudo consultar la fuente de datos externa', {
+          status: 'provider_unavailable',
+          barcode: code,
+        });
+      }
+      throw makeError(404, 'No hay datos para crear el producto automaticamente', {
+        status: 'metadata_missing',
+        barcode: code,
+      });
+    }
+    const isBook = isBookCode(code);
+    const product = createProduct(state, {
+      name: metadata.name,
+      brand: metadata.brand,
+      subcategory: metadata.subcategory,
+      unit_of_measure: 'unidad',
+      iva_rate_pct: isBook ? 0 : 21,
+      default_cost_ars: 0,
+      default_price_online_ars: 0,
+      active: true,
+    });
+    const variant = createVariant(state, {
+      product_id: product.id,
+      barcode_internal: code,
+      sku: `${isBook ? 'ISBN' : 'EAN'}-${code}`,
+      display_name: metadata.name,
+      price_store_ars: 0,
+      price_online_ars: 0,
+      stock_on_hand: 0,
+      active: false,
+    });
+    variant.pending_price = true;
+    saveState(state);
+    return {
+      status: 'created_pending',
+      barcode: code,
+      detail: 'Producto creado y pendiente de precio.',
+      metadata,
+      variant,
+      created_variant: variant,
+    };
   }
   match = pathname.match(/^\/api\/retail\/variantes\/(\d+)\/$/);
   if (match && method === 'PATCH') {
@@ -1839,7 +2037,7 @@ export async function demoHttp(path, { method = 'GET', body } = {}) {
   const state = loadState();
   const url = new URL(path, window.location.origin);
   const payload = readPayload(body);
-  const result = routeDemo(state, String(method || 'GET').toUpperCase(), url.pathname, url.searchParams, payload);
+  const result = await routeDemo(state, String(method || 'GET').toUpperCase(), url.pathname, url.searchParams, payload);
   return clone(result);
 }
 

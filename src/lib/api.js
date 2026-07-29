@@ -157,6 +157,10 @@ export const postRetailProducto = (payload) => api.post('/api/retail/productos/'
 export const patchRetailProducto = (id, payload) => api.patch(`/api/retail/productos/${id}/`, payload);
 export const postRetailProductosAjustePrecios = (payload) =>
   api.post('/api/retail/productos/ajuste-precios/', payload || {});
+export const getRetailBarcodeLookup = (codigo) =>
+  api.get(`/api/retail/barcodes/lookup/${encodeURIComponent(codigo)}/`);
+export const postRetailBarcodeIntake = (barcode) =>
+  api.post('/api/retail/barcodes/intake/', { barcode });
 
 export const getRetailAtributos = () => api.get('/api/retail/atributos/');
 export const getRetailAtributoValores = (params = {}) => {

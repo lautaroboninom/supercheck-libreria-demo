@@ -98,7 +98,7 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || !updateNoticeStorageKey) {
+    if (!user || !updateNoticeStorageKey || demoMode) {
       setShowUpdateNotice(false);
       return;
     }

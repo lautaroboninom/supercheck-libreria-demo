@@ -1,4 +1,4 @@
-export const USER_GUIDE_VERSION = '2026-06-client-guide-v1';
+export const USER_GUIDE_VERSION = '2026-07-client-guide-v2';
 
 export const ROUTE_GUIDES = {
   '/pos': {
@@ -6,12 +6,15 @@ export const ROUTE_GUIDES = {
     title: 'Como vender en el mostrador',
     summary: 'Usa esta pantalla para abrir caja, escanear productos, elegir cobro y confirmar la venta.',
     steps: [
-      'Abri la caja con el importe inicial antes de vender.',
+      'Abri el bloque "Caja" (se despliega solo cuando esta cerrada) y carga el importe inicial antes de vender.',
       'Escanea el producto o buscalo manualmente y revisa cantidad/precio.',
       'Elegi medio de pago, cuenta de cobro y datos del cliente si corresponde.',
-      'Confirma la venta cuando el total este correcto.',
+      'Confirma la venta desde el panel "Totales y cierre de venta" anclado abajo a la derecha; toca "Ver detalle" si necesitas el desglose completo antes de confirmar.',
     ],
-    tips: ['F2 enfoca el scanner, F8 guarda borrador y F9 confirma cuando la venta esta lista.'],
+    tips: [
+      'F2 enfoca el scanner, F8 guarda borrador y F9 confirma cuando la venta esta lista.',
+      'El bloque Caja se pliega o despliega solo apenas la abris o cerras, y el titulo siempre muestra si esta Abierta o Cerrada. Igual podes tocarlo para desplegarlo manualmente en cualquier momento.',
+    ],
     to: '/pos',
   },
   '/productos': {
@@ -30,14 +33,14 @@ export const ROUTE_GUIDES = {
   '/compras': {
     eyebrow: 'Abastecimiento',
     title: 'Como registrar compras',
-    summary: 'Carga proveedores, recepciones de mercaderia y costos para mantener stock y margenes.',
+    summary: 'La pantalla esta dividida en pestañas: Registrar compra, Ordenes de compra y Proveedores.',
     steps: [
-      'Selecciona proveedor y fecha de la compra.',
-      'Agrega productos recibidos con cantidad, costo y lote si aplica.',
-      'Confirma la compra para actualizar stock y costos promedio.',
-      'Revisa alertas de reposicion si necesitas planificar nuevos pedidos.',
+      'En la pestaña "Registrar compra" elegi proveedor y fecha, y agrega los productos recibidos con cantidad y costo.',
+      'Confirma la compra para actualizar stock y costo promedio de cada presentacion.',
+      'En "Ordenes de compra" segui el estado de las OC abiertas o generá una nueva desde la reposicion sugerida.',
+      'En "Proveedores" consulta el historial de compras y reutiliza el nombre para autocompletar el formulario.',
     ],
-    tips: ['Registrar compras antes de vender mejora reportes de rentabilidad y reposicion.'],
+    tips: ['Si el producto o la presentacion todavia no existen, podes crearlos sin salir de Compras desde el buscador de la pestaña "Registrar compra".'],
     to: '/compras',
   },
   '/ventas': {
@@ -165,7 +168,7 @@ export const GUIDE_MODULES = [
     title: 'Vender en caja',
     to: '/pos',
     role: 'Cajero / mostrador',
-    outcome: 'Abrir caja, escanear productos, cobrar y confirmar venta.',
+    outcome: 'Abrir caja, escanear productos, cobrar y confirmar venta desde el panel de totales anclado.',
     checklist: ['Caja abierta', 'Productos con barcode/precio', 'Medio de pago elegido', 'Venta confirmada'],
   },
   {
@@ -181,8 +184,8 @@ export const GUIDE_MODULES = [
     title: 'Reponer mercaderia',
     to: '/compras',
     role: 'Compras / deposito',
-    outcome: 'Registrar proveedores, compras, costos y entrada de stock.',
-    checklist: ['Proveedor seleccionado', 'Cantidades recibidas', 'Costos cargados', 'Stock actualizado'],
+    outcome: 'Registrar compras, generar ordenes de compra y consultar proveedores desde pestañas separadas.',
+    checklist: ['Proveedor seleccionado', 'Cantidades y costos cargados', 'Compra confirmada', 'OC revisada si aplica'],
   },
   {
     key: 'inventario',
