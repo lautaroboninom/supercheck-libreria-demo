@@ -10,6 +10,7 @@ import {
   getRetailPosDrafts,
   getRetailVarianteByScan,
   getRetailVariantes,
+  getRetailVentas,
   patchRetailPosDraft,
   postRetailCajaApertura,
   postRetailCajaCierre,
@@ -209,6 +210,10 @@ function formatQty(value) {
   return n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
 }
 
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function PosPage() {
   const { user } = useAuth();
   const isAdmin = String(user?.rol || '').toLowerCase() === 'admin';
@@ -275,7 +280,7 @@ export default function PosPage() {
   const [closingIncidentTitle, setClosingIncidentTitle] = useState('');
   const [closingIncidentDetail, setClosingIncidentDetail] = useState('');
   const [quickMode, setQuickMode] = useState(() => {
-    const current = window.localStorage.getItem('supermercado_pos_quick_mode');
+    const current = window.localStorage.getItem('libreria_pos_quick_mode');
     return current !== '0';
   });
 
@@ -283,14 +288,18 @@ export default function PosPage() {
   const [selectedDraftId, setSelectedDraftId] = useState(null);
   const [draftName, setDraftName] = useState('');
   const [draftsLoading, setDraftsLoading] = useState(false);
-  const [customerPanelOpen, setCustomerPanelOpen] = useState(false);
-  const [draftsPanelOpen, setDraftsPanelOpen] = useState(false);
   const [totalsDetailOpen, setTotalsDetailOpen] = useState(false);
   const [cajaPanelOpen, setCajaPanelOpen] = useState(true);
   const cajaWasOpenRef = useRef(false);
   const [pendingRows, setPendingRows] = useState([]);
   const [pendingSummary, setPendingSummary] = useState(null);
   const [pendingLoading, setPendingLoading] = useState(false);
+
+  const [recentSales, setRecentSales] = useState([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [clientNotesOpen, setClientNotesOpen] = useState(false);
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [salesHistoryOpen, setSalesHistoryOpen] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [quoteBusy, setQuoteBusy] = useState(false);
@@ -880,6 +889,25 @@ export default function PosPage() {
     }
   }
 
+  async function loadRecentSales() {
+    setRecentLoading(true);
+    try {
+      const day = todayIso();
+      const resp = await getRetailVentas({
+        desde: day,
+        hasta: day,
+        channel: 'local',
+        limit: 8,
+        offset: 0,
+      });
+      setRecentSales(Array.isArray(resp?.rows) ? resp.rows : []);
+    } catch {
+      setRecentSales([]);
+    } finally {
+      setRecentLoading(false);
+    }
+  }
+
   async function loadOperationalPending() {
     setPendingLoading(true);
     try {
@@ -922,6 +950,7 @@ export default function PosPage() {
     loadAccounts();
     loadArcaAccounts();
     loadDrafts();
+    loadRecentSales();
     loadOperationalPending();
   }, []);
 
@@ -930,7 +959,7 @@ export default function PosPage() {
   }, [busy]);
 
   useEffect(() => {
-    window.localStorage.setItem('supermercado_pos_quick_mode', quickMode ? '1' : '0');
+    window.localStorage.setItem('libreria_pos_quick_mode', quickMode ? '1' : '0');
   }, [quickMode]);
 
   useEffect(() => {
@@ -1368,7 +1397,7 @@ export default function PosPage() {
         },
       ]);
       setMsg('Venta confirmada');
-      await Promise.all([loadCashSession(), loadDrafts(), loadOperationalPending()]);
+      await Promise.all([loadCashSession(), loadDrafts(), loadRecentSales(), loadOperationalPending()]);
     } catch (error) {
       setErr(errMsg(error));
     } finally {
@@ -1551,6 +1580,13 @@ export default function PosPage() {
           <div className="flex flex-wrap gap-2 text-xs">
             <button
               type="button"
+              className="rounded-full border border-neutral-300 bg-white px-2.5 py-0.5 font-semibold text-neutral-700 hover:bg-neutral-100"
+              onClick={() => setSalesHistoryOpen((open) => !open)}
+            >
+              Historial de ventas
+            </button>
+            <button
+              type="button"
               className={`rounded-full border px-2.5 py-0.5 font-semibold ${
                 quickMode
                   ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
@@ -1653,6 +1689,44 @@ export default function PosPage() {
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+      {salesHistoryOpen ? (
+        <div className="fixed inset-0 z-40 flex items-start justify-end bg-black/30 p-4 pt-20">
+          <section className="w-full max-w-md rounded-lg border border-neutral-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
+              <h2 className="text-lg font-semibold">Historial de ventas</h2>
+              <button
+                type="button"
+                className="rounded border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-100"
+                onClick={() => setSalesHistoryOpen(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="space-y-2 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-neutral-600">Ventas recientes de hoy</p>
+                <button type="button" className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={loadRecentSales}>
+                  Refrescar
+                </button>
+              </div>
+              {recentLoading ? (
+                <p className="text-sm text-gray-500">Cargando ventas...</p>
+              ) : recentSales.length ? (
+                <div className="max-h-[60vh] space-y-1 overflow-auto text-sm">
+                  {recentSales.map((row) => (
+                    <div key={row.id} className="flex items-center justify-between rounded border border-neutral-200 px-2 py-1.5">
+                      <span className="truncate">{row.sale_number || `#${row.id}`}</span>
+                      <strong>{money(row.total_ars)}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Sin ventas registradas hoy.</p>
+              )}
+            </div>
+          </section>
         </div>
       ) : null}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -1816,20 +1890,25 @@ export default function PosPage() {
             )}
           </div>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <div className="card">
+            <section className="card space-y-3">
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-2 text-left"
-                onClick={() => setCustomerPanelOpen((prev) => !prev)}
-                aria-expanded={customerPanelOpen}
+                className="flex w-full items-center justify-between gap-3 text-left"
+                onClick={() => setClientNotesOpen((open) => !open)}
+                aria-expanded={clientNotesOpen}
               >
-                <h2 className="text-lg font-semibold">Cliente y notas</h2>
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-neutral-300 text-lg leading-none text-neutral-700">
-                  {customerPanelOpen ? '-' : '+'}
+                <span>
+                  <span className="block text-lg font-semibold">Cliente y notas</span>
+                  <span className="block text-xs text-neutral-500">
+                    {customerName || customerDoc || notes || couponCodes ? 'Datos cargados' : 'Sin datos de cliente'}
+                  </span>
+                </span>
+                <span className="rounded border border-neutral-300 px-2 py-1 text-xs font-semibold">
+                  {clientNotesOpen ? 'Ocultar' : 'Mostrar'}
                 </span>
               </button>
-              {customerPanelOpen ? (
-                <div className="mt-3 space-y-3">
+              {clientNotesOpen ? (
+                <div className="space-y-3 border-t border-neutral-200 pt-3">
                   {anyOverride ? (
                     <input
                       className="input"
@@ -1865,22 +1944,27 @@ export default function PosPage() {
                   />
                 </div>
               ) : null}
-            </div>
+            </section>
 
-            <div className="card">
+            <section className="card space-y-3">
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-2 text-left"
-                onClick={() => setDraftsPanelOpen((prev) => !prev)}
-                aria-expanded={draftsPanelOpen}
+                className="flex w-full items-center justify-between gap-3 text-left"
+                onClick={() => setDraftsOpen((open) => !open)}
+                aria-expanded={draftsOpen}
               >
-                <h2 className="text-lg font-semibold">Borradores en espera</h2>
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-neutral-300 text-lg leading-none text-neutral-700">
-                  {draftsPanelOpen ? '-' : '+'}
+                <span>
+                  <span className="block text-lg font-semibold">Borradores en espera</span>
+                  <span className="block text-xs text-neutral-500">
+                    {selectedDraft ? `Activo: ${selectedDraft.draft_number}` : `${drafts.length} abiertos`}
+                  </span>
+                </span>
+                <span className="rounded border border-neutral-300 px-2 py-1 text-xs font-semibold">
+                  {draftsOpen ? 'Ocultar' : 'Mostrar'}
                 </span>
               </button>
-              {draftsPanelOpen ? (
-                <div className="mt-3 space-y-3">
+              {draftsOpen ? (
+                <div className="space-y-3 border-t border-neutral-200 pt-3">
                   <input
                     className="input"
                     value={draftName}
@@ -1939,7 +2023,7 @@ export default function PosPage() {
                   </div>
                 </div>
               ) : null}
-            </div>
+            </section>
           </div>
         </div>
         <div className="space-y-4">
@@ -2083,222 +2167,222 @@ export default function PosPage() {
           </div>
 
           <div className="xl:sticky xl:top-20 xl:self-start">
-            <div className="card space-y-3">
-              <h2 className="text-lg font-semibold">Cobro</h2>
-              <div>
-                <label className="label">Medio de pago base (pricing)</label>
-                <select
-                  className="input"
-                  value={paymentMethod}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setPaymentMethod(next);
-                    setPaymentAccountCode(defaultAccountCode(next, accounts));
-                    if (next !== 'store_credit') {
-                      setSelectedStoreCreditId('');
-                    }
-                    setQuote(null);
-                  }}
-                >
-                  {PAYMENT_OPTIONS.map((op) => (
-                    <option key={op.value} value={op.value}>
-                      {op.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">Cuenta / caja base</label>
-                <select
-                  className="input"
-                  value={paymentAccountCode}
-                  onChange={(e) => setPaymentAccountCode(e.target.value)}
-                >
-                  {filteredAccounts.map((op) => (
-                    <option key={op.code} value={op.code}>
-                      {op.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {paymentMethod === 'store_credit' ? (
-                <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
-                  <div className="flex flex-wrap items-end gap-2">
-                    <button
-                      type="button"
-                      className="btn-secondary !py-2"
-                      onClick={loadStoreCreditsByDoc}
-                      disabled={storeCreditsLoading}
-                    >
-                      {storeCreditsLoading ? 'Buscando...' : 'Buscar creditos por DNI/CUIT'}
-                    </button>
-                    <span className="text-xs text-neutral-500">
-                      Doc cliente: <strong>{normalizeDocDigits(customerDoc) || '-'}</strong>
-                    </span>
-                  </div>
-                  <select
-                    className="input"
-                    value={selectedStoreCreditId}
-                    onChange={(e) => setSelectedStoreCreditId(e.target.value)}
+          <div className="card space-y-3">
+            <h2 className="text-lg font-semibold">Cobro</h2>
+            <div>
+              <label className="label">Medio de pago base (pricing)</label>
+              <select
+                className="input"
+                value={paymentMethod}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setPaymentMethod(next);
+                  setPaymentAccountCode(defaultAccountCode(next, accounts));
+                  if (next !== 'store_credit') {
+                    setSelectedStoreCreditId('');
+                  }
+                  setQuote(null);
+                }}
+              >
+                {PAYMENT_OPTIONS.map((op) => (
+                  <option key={op.value} value={op.value}>
+                    {op.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Cuenta / caja base</label>
+              <select
+                className="input"
+                value={paymentAccountCode}
+                onChange={(e) => setPaymentAccountCode(e.target.value)}
+              >
+                {filteredAccounts.map((op) => (
+                  <option key={op.code} value={op.code}>
+                    {op.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {paymentMethod === 'store_credit' ? (
+              <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
+                <div className="flex flex-wrap items-end gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary !py-2"
+                    onClick={loadStoreCreditsByDoc}
+                    disabled={storeCreditsLoading}
                   >
-                    <option value="">Seleccionar credito tienda</option>
-                    {storeCredits.map((row) => (
-                      <option key={`base-credit-${row.id}`} value={String(row.id)}>
-                        #{row.id} | saldo {money(row.amount_balance_ars)} | {row.customer_name || row.customer_doc || 'cliente'}
-                      </option>
-                    ))}
-                  </select>
+                    {storeCreditsLoading ? 'Buscando...' : 'Buscar creditos por DNI/CUIT'}
+                  </button>
+                  <span className="text-xs text-neutral-500">
+                    Doc cliente: <strong>{normalizeDocDigits(customerDoc) || '-'}</strong>
+                  </span>
                 </div>
-              ) : null}
-              {!splitPaymentsEnabled && paymentMethod === 'cash' ? (
-                <div className="grid grid-cols-1 gap-2 rounded-lg border border-neutral-200 p-2 2xl:grid-cols-3">
-                  <label className="block">
-                    <span className="label">Recibido</span>
-                    <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={cashReceived}
-                      onChange={(e) => setCashReceived(e.target.value)}
-                    />
-                  </label>
-                  <div className="rounded border border-neutral-200 bg-neutral-50 p-2 text-sm">
-                    <div>Total</div>
-                    <strong>{money(totalDue)}</strong>
-                  </div>
-                  <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-800">
-                    <div>Vuelto</div>
-                    <strong>{money(cashChange)}</strong>
-                  </div>
+                <select
+                  className="input"
+                  value={selectedStoreCreditId}
+                  onChange={(e) => setSelectedStoreCreditId(e.target.value)}
+                >
+                  <option value="">Seleccionar credito tienda</option>
+                  {storeCredits.map((row) => (
+                    <option key={`base-credit-${row.id}`} value={String(row.id)}>
+                      #{row.id} | saldo {money(row.amount_balance_ars)} | {row.customer_name || row.customer_doc || 'cliente'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {!splitPaymentsEnabled && paymentMethod === 'cash' ? (
+              <div className="grid grid-cols-1 gap-2 rounded-lg border border-neutral-200 p-2 md:grid-cols-3">
+                <label className="block md:col-span-1">
+                  <span className="label">Recibido</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value)}
+                  />
+                </label>
+                <div className="rounded border border-neutral-200 bg-neutral-50 p-2 text-sm">
+                  <div>Total</div>
+                  <strong>{money(totalDue)}</strong>
                 </div>
-              ) : null}
+                <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-800">
+                  <div>Vuelto</div>
+                  <strong>{money(cashChange)}</strong>
+                </div>
+              </div>
+            ) : null}
 
-              <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
-                <input
-                  type="checkbox"
-                  checked={splitPaymentsEnabled}
-                  onChange={(e) => setSplitPaymentsEnabled(e.target.checked)}
-                />
-                Pago mixto (split tender)
-              </label>
+            <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="checkbox"
+                checked={splitPaymentsEnabled}
+                onChange={(e) => setSplitPaymentsEnabled(e.target.checked)}
+              />
+              Pago mixto (split tender)
+            </label>
 
-              {splitPaymentsEnabled ? (
-                <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
-                  {splitPayments.map((row, idx) => {
-                    const scopedAccounts = accountsByMethod(row.method || paymentMethod);
-                    return (
-                      <div key={`split-${idx}`} className="grid grid-cols-1 gap-2 2xl:grid-cols-8">
+            {splitPaymentsEnabled ? (
+              <div className="space-y-2 rounded-lg border border-neutral-200 p-2">
+                {splitPayments.map((row, idx) => {
+                  const scopedAccounts = accountsByMethod(row.method || paymentMethod);
+                  return (
+                    <div key={`split-${idx}`} className="grid grid-cols-1 gap-2">
+                      <select
+                        className="input"
+                        value={row.method}
+                        onChange={(e) =>
+                          changeSplitRow(idx, {
+                            method: e.target.value,
+                            account_code: defaultAccountCode(e.target.value, accounts),
+                            modifier_pct: String(
+                              accountModifierPct(defaultAccountCode(e.target.value, accounts), accounts)
+                            ),
+                          })
+                        }
+                      >
+                        {PAYMENT_OPTIONS.map((op) => (
+                          <option key={op.value} value={op.value}>
+                            {op.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="input"
+                        value={row.account_code}
+                        onChange={(e) =>
+                          changeSplitRow(idx, {
+                            account_code: e.target.value,
+                            modifier_pct: String(accountModifierPct(e.target.value, accounts)),
+                          })
+                        }
+                      >
+                        {scopedAccounts.map((acc) => (
+                          <option key={`${idx}-${acc.code}`} value={acc.code}>
+                            {acc.label}
+                          </option>
+                        ))}
+                      </select>
+                      {row.method === 'store_credit' ? (
                         <select
-                          className="input 2xl:col-span-2"
-                          value={row.method}
-                          onChange={(e) =>
-                            changeSplitRow(idx, {
-                              method: e.target.value,
-                              account_code: defaultAccountCode(e.target.value, accounts),
-                              modifier_pct: String(
-                                accountModifierPct(defaultAccountCode(e.target.value, accounts), accounts)
-                              ),
-                            })
-                          }
+                          className="input"
+                          value={row.store_credit_id || ''}
+                          onChange={(e) => changeSplitRow(idx, { store_credit_id: e.target.value })}
                         >
-                          {PAYMENT_OPTIONS.map((op) => (
-                            <option key={op.value} value={op.value}>
-                              {op.label}
+                          <option value="">Seleccionar credito</option>
+                          {storeCredits.map((credit) => (
+                            <option key={`split-credit-${idx}-${credit.id}`} value={String(credit.id)}>
+                              #{credit.id} | saldo {money(credit.amount_balance_ars)}
                             </option>
                           ))}
                         </select>
-                        <select
-                          className="input 2xl:col-span-2"
-                          value={row.account_code}
-                          onChange={(e) =>
-                            changeSplitRow(idx, {
-                              account_code: e.target.value,
-                              modifier_pct: String(accountModifierPct(e.target.value, accounts)),
-                            })
-                          }
-                        >
-                          {scopedAccounts.map((acc) => (
-                            <option key={`${idx}-${acc.code}`} value={acc.code}>
-                              {acc.label}
-                            </option>
-                          ))}
-                        </select>
-                        {row.method === 'store_credit' ? (
-                          <select
-                            className="input 2xl:col-span-2"
-                            value={row.store_credit_id || ''}
-                            onChange={(e) => changeSplitRow(idx, { store_credit_id: e.target.value })}
-                          >
-                            <option value="">Seleccionar credito</option>
-                            {storeCredits.map((credit) => (
-                              <option key={`split-credit-${idx}-${credit.id}`} value={String(credit.id)}>
-                                #{credit.id} | saldo {money(credit.amount_balance_ars)}
-                              </option>
-                            ))}
-                          </select>
-                        ) : null}
+                      ) : null}
+                      <input
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="Monto base"
+                        value={row.amount_ars}
+                        onChange={(e) => changeSplitRow(idx, { amount_ars: e.target.value })}
+                      />
+                      {isAdmin ? (
                         <input
                           className="input"
                           type="number"
                           step="0.01"
-                          min="0"
-                          placeholder="Monto base"
-                          value={row.amount_ars}
-                          onChange={(e) => changeSplitRow(idx, { amount_ars: e.target.value })}
+                          min="-99.99"
+                          placeholder="% ajuste"
+                          value={row.modifier_pct ?? ''}
+                          onChange={(e) => changeSplitRow(idx, { modifier_pct: e.target.value })}
                         />
-                        {isAdmin ? (
-                          <input
-                            className="input"
-                            type="number"
-                            step="0.01"
-                            min="-99.99"
-                            placeholder="% ajuste"
-                            value={row.modifier_pct ?? ''}
-                            onChange={(e) => changeSplitRow(idx, { modifier_pct: e.target.value })}
-                          />
-                        ) : null}
-                        <button
-                          type="button"
-                          className="rounded border border-neutral-300 px-2 py-1 text-xs"
-                          onClick={() => removeSplitRow(idx)}
-                          disabled={splitPayments.length <= 1}
-                        >
-                          Quitar
-                        </button>
-                      </div>
-                    );
-                  })}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      className="btn-secondary !py-2"
-                      onClick={loadStoreCreditsByDoc}
-                      disabled={storeCreditsLoading}
-                    >
-                      {storeCreditsLoading ? 'Buscando...' : 'Actualizar creditos por DNI/CUIT'}
-                    </button>
-                    <span className="text-xs text-neutral-500">
-                      Disponibles: <strong>{storeCredits.length}</strong>
-                    </span>
-                  </div>
-                  <button type="button" className="btn-secondary !py-2" onClick={addSplitRow}>
-                    Agregar tramo
+                      ) : null}
+                      <button
+                        type="button"
+                        className="rounded border border-neutral-300 px-2 py-1 text-xs"
+                        onClick={() => removeSplitRow(idx)}
+                        disabled={splitPayments.length <= 1}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary !py-2"
+                    onClick={loadStoreCreditsByDoc}
+                    disabled={storeCreditsLoading}
+                  >
+                    {storeCreditsLoading ? 'Buscando...' : 'Actualizar creditos por DNI/CUIT'}
                   </button>
-                  <div className="rounded border border-dashed px-2 py-1 text-xs">
-                    <div>
-                      Suma base tramos: <strong>{money(splitTotals.current)}</strong>
-                    </div>
-                    <div>
-                      Subtotal base: <strong>{money(splitTotals.expected)}</strong>
-                    </div>
-                    <div className={splitTotals.diff === 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                      Diferencia: <strong>{money(splitTotals.diff)}</strong>
-                    </div>
+                  <span className="text-xs text-neutral-500">
+                    Disponibles: <strong>{storeCredits.length}</strong>
+                  </span>
+                </div>
+                <button type="button" className="btn-secondary !py-2" onClick={addSplitRow}>
+                  Agregar tramo
+                </button>
+                <div className="rounded border border-dashed px-2 py-1 text-xs">
+                  <div>
+                    Suma base tramos: <strong>{money(splitTotals.current)}</strong>
+                  </div>
+                  <div>
+                    Subtotal base: <strong>{money(splitTotals.expected)}</strong>
+                  </div>
+                  <div className={splitTotals.diff === 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                    Diferencia: <strong>{money(splitTotals.diff)}</strong>
                   </div>
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
+          </div>
           </div>
         </div>
       </div>
