@@ -1379,103 +1379,20 @@ function dashboard(state) {
 const BOOK_EAN_PREFIXES = ['978', '979'];
 const isBookCode = (code) => BOOK_EAN_PREFIXES.some((prefix) => code.startsWith(prefix));
 
-async function fetchWithTimeout(url, timeoutMs = 6000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function lookupGoogleBooks(isbn) {
-  try {
-    const res = await fetchWithTimeout(
-      `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&maxResults=1&printType=books&projection=lite`
-    );
-    if (!res.ok) return { metadata: null, error: true };
-    const data = await res.json();
-    const info = data.items?.[0]?.volumeInfo;
-    if (!info?.title) return { metadata: null, error: false };
-    return {
-      error: false,
-      metadata: {
-        name: info.title,
-        authors: Array.isArray(info.authors) ? info.authors : [],
-        publisher: info.publisher || '',
-        brand: info.publisher || '',
-        subcategory: info.categories?.[0] || 'Libro',
-        image_url: info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || '',
-      },
-    };
-  } catch {
-    return { metadata: null, error: true };
-  }
-}
-
-async function lookupOpenLibrary(isbn) {
-  try {
-    const res = await fetchWithTimeout(
-      `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&jscmd=data&format=json`
-    );
-    if (!res.ok) return { metadata: null, error: true };
-    const data = await res.json();
-    const book = data[`ISBN:${isbn}`];
-    if (!book?.title) return { metadata: null, error: false };
-    return {
-      error: false,
-      metadata: {
-        name: book.title,
-        authors: (book.authors || []).map((a) => a.name),
-        publisher: book.publishers?.[0]?.name || '',
-        brand: book.publishers?.[0]?.name || '',
-        subcategory: book.subjects?.[0]?.name || 'Libro',
-        image_url: book.cover?.medium || book.cover?.small || '',
-      },
-    };
-  } catch {
-    return { metadata: null, error: true };
-  }
-}
-
-async function lookupOpenFoodFacts(code) {
-  try {
-    const res = await fetchWithTimeout(`https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(code)}`);
-    if (!res.ok) return { metadata: null, error: true };
-    const data = await res.json();
-    const product = data?.product;
-    if (data?.status !== 1 || !product?.product_name) return { metadata: null, error: false };
-    return {
-      error: false,
-      metadata: {
-        name: product.product_name,
-        authors: [],
-        publisher: product.brands || '',
-        brand: product.brands || '',
-        subcategory: (product.categories_tags?.[0] || '').replace(/^\w+:/, ''),
-        image_url: product.image_front_small_url || product.image_url || '',
-      },
-    };
-  } catch {
-    return { metadata: null, error: true };
-  }
-}
-
-// Consulta fuentes externas reales (gratuitas, sin API key) para simular en el navegador
-// el mismo comportamiento que el backend real: Google Books/Open Library para libros
-// (ISBN, prefijo 978/979) y Open Food Facts para el resto de codigos de barra.
+// El lookup real (Google Books / Open Library / Open Food Facts) corre en la
+// funcion serverless propia de Vercel (api/barcode-lookup.js), no aca. Llamarlas
+// directo desde el navegador falla: Open Library no envia cabecera CORS y la
+// cuota anonima de Google Books es global y suele estar saturada. La funcion
+// serverless las llama servidor-a-servidor, sin esas restricciones.
 async function lookupExternalBarcodeMetadata(code) {
-  const providers = isBookCode(code)
-    ? [() => lookupGoogleBooks(code), () => lookupOpenLibrary(code)]
-    : [() => lookupOpenFoodFacts(code)];
-  let anyError = false;
-  for (const run of providers) {
-    const { metadata, error } = await run();
-    if (metadata) return { metadata, failed: false };
-    if (error) anyError = true;
+  try {
+    const res = await fetch(`/api/barcode-lookup?code=${encodeURIComponent(code)}`);
+    if (!res.ok) return { metadata: null, failed: true };
+    const data = await res.json();
+    return { metadata: data?.metadata || null, failed: !!data?.failed };
+  } catch {
+    return { metadata: null, failed: true };
   }
-  return { metadata: null, failed: anyError };
 }
 
 async function routeDemo(state, method, pathname, params, payload) {
