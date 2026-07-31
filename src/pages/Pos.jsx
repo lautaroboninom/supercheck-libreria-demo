@@ -1898,7 +1898,7 @@ export default function PosPage() {
                 aria-expanded={clientNotesOpen}
               >
                 <span>
-                  <span className="block text-lg font-semibold">Cliente y notas</span>
+                  <span className="block text-base font-semibold">Cliente y notas</span>
                   <span className="block text-xs text-neutral-500">
                     {customerName || customerDoc || notes || couponCodes ? 'Datos cargados' : 'Sin datos de cliente'}
                   </span>
@@ -1954,7 +1954,7 @@ export default function PosPage() {
                 aria-expanded={draftsOpen}
               >
                 <span>
-                  <span className="block text-lg font-semibold">Borradores en espera</span>
+                  <span className="block text-base font-semibold">Borradores en espera</span>
                   <span className="block text-xs text-neutral-500">
                     {selectedDraft ? `Activo: ${selectedDraft.draft_number}` : `${drafts.length} abiertos`}
                   </span>
