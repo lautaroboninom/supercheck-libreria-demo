@@ -298,6 +298,7 @@ export default function PosPage() {
   const [recentSales, setRecentSales] = useState([]);
   const [recentLoading, setRecentLoading] = useState(false);
   const [clientNotesOpen, setClientNotesOpen] = useState(false);
+  const [manualSearchOpen, setManualSearchOpen] = useState(false);
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [salesHistoryOpen, setSalesHistoryOpen] = useState(false);
 
@@ -394,6 +395,16 @@ export default function PosPage() {
   function hasEditableFocus() {
     const activeEl = document?.activeElement;
     return isTextEditableTarget(activeEl) || Boolean(activeEl?.isContentEditable);
+  }
+
+  function toggleManualSearch() {
+    setManualSearchOpen((prev) => {
+      if (prev) {
+        setManualQuery('');
+        setManualRows([]);
+      }
+      return !prev;
+    });
   }
 
   function focusScanIfIdle() {
@@ -1751,58 +1762,72 @@ export default function PosPage() {
                 Foco scanner
               </button>
             </div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-              <div className="md:col-span-3">
-                <label className="label">Busqueda manual de productos</label>
-                <input
-                  className="input"
-                  value={manualQuery}
-                  onChange={(e) => setManualQuery(e.target.value)}
-                  placeholder="Buscar por SKU, barcode, PLU o producto"
-                />
-              </div>
-              <button type="button" className="btn-secondary md:mt-[1.36rem]" onClick={() => { setManualQuery(''); setManualRows([]); }}>
-                Limpiar busqueda
+            <div className="flex items-center justify-between gap-2">
+              <span className="label !mb-0">Busqueda manual de productos</span>
+              <button
+                type="button"
+                className="text-xs font-semibold text-neutral-600 hover:text-neutral-900 hover:underline"
+                onClick={toggleManualSearch}
+              >
+                {manualSearchOpen ? 'Ocultar' : 'Buscar manualmente'}
               </button>
             </div>
-            {manualQuery.trim().length >= 2 ? (
-              <div className="rounded-lg border border-neutral-200">
-                {manualLoading ? (
-                  <p className="px-3 py-2 text-sm text-gray-500">Buscando presentaciones...</p>
-                ) : manualRows.length ? (
-                  <div className="max-h-72 overflow-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-left">
-                          <th className="px-3 py-2">SKU</th>
-                          <th className="px-3 py-2">Producto</th>
-                          <th className="px-3 py-2">Precio</th>
-                          <th className="px-3 py-2" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {manualRows.map((row) => (
-                          <tr key={row.id} className="border-b last:border-b-0">
-                            <td className="px-3 py-2">{row.sku || '-'}</td>
-                            <td className="px-3 py-2">
-                              {row.producto}
-                              <div className="text-xs text-gray-500">{row.option_signature || '-'}</div>
-                            </td>
-                            <td className="px-3 py-2">{money(row.price_store_ars)}</td>
-                            <td className="px-3 py-2 text-right">
-                              <button type="button" className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={() => { addOrIncreaseItem(row); setManualQuery(''); setManualRows([]); }}>
-                                Agregar
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+            {manualSearchOpen ? (
+              <>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+                  <div className="md:col-span-3">
+                    <input
+                      className="input"
+                      value={manualQuery}
+                      onChange={(e) => setManualQuery(e.target.value)}
+                      placeholder="Buscar por SKU, barcode, PLU o producto"
+                      autoFocus
+                    />
                   </div>
-                ) : (
-                  <p className="px-3 py-2 text-sm text-gray-500">Sin resultados para la busqueda.</p>
-                )}
-              </div>
+                  <button type="button" className="btn-secondary" onClick={() => { setManualQuery(''); setManualRows([]); }}>
+                    Limpiar busqueda
+                  </button>
+                </div>
+                {manualQuery.trim().length >= 2 ? (
+                  <div className="rounded-lg border border-neutral-200">
+                    {manualLoading ? (
+                      <p className="px-3 py-2 text-sm text-gray-500">Buscando presentaciones...</p>
+                    ) : manualRows.length ? (
+                      <div className="max-h-72 overflow-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr className="border-b text-left">
+                              <th className="px-3 py-2">SKU</th>
+                              <th className="px-3 py-2">Producto</th>
+                              <th className="px-3 py-2">Precio</th>
+                              <th className="px-3 py-2" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {manualRows.map((row) => (
+                              <tr key={row.id} className="border-b last:border-b-0">
+                                <td className="px-3 py-2">{row.sku || '-'}</td>
+                                <td className="px-3 py-2">
+                                  {row.producto}
+                                  <div className="text-xs text-gray-500">{row.option_signature || '-'}</div>
+                                </td>
+                                <td className="px-3 py-2">{money(row.price_store_ars)}</td>
+                                <td className="px-3 py-2 text-right">
+                                  <button type="button" className="btn-secondary !px-2.5 !py-1.5 !text-xs" onClick={() => { addOrIncreaseItem(row); setManualQuery(''); setManualRows([]); }}>
+                                    Agregar
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="px-3 py-2 text-sm text-gray-500">Sin resultados para la busqueda.</p>
+                    )}
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </form>
           {ticketLookup?.sale ? (
@@ -1816,7 +1841,7 @@ export default function PosPage() {
               </div>
             </div>
           ) : null}
-          <div className="card !bg-neutral-50 space-y-3">
+          <div className="card !bg-neutral-100 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-lg font-semibold">Carrito ({formatQty(totalQty)})</h2>
               <div className="flex gap-2">
