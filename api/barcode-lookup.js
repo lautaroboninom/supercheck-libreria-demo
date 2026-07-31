@@ -67,10 +67,14 @@ async function lookupOpenLibrary(isbn) {
   }
 }
 
-async function lookupOpenFoodFacts(code) {
+// Open Food Facts, Open Products Facts (no-food) y Open Beauty Facts (cosmetica)
+// son proyectos hermanos con la misma forma de API (Open*Facts, v3), asi que
+// comparten el mismo parser. Entre los tres cubren bastante mas que solo
+// alimentos: papeleria, juguetes, cosmetica, bazar, lo tipico de una libreria.
+async function lookupOpenFactsFamily(baseUrl, code) {
   try {
-    const res = await fetchWithTimeout(`https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(code)}`);
-    // Open Food Facts responde 404 (no un error de servidor) cuando el codigo
+    const res = await fetchWithTimeout(`${baseUrl}/api/v3/product/${encodeURIComponent(code)}`);
+    // Estas APIs responden 404 (no un error de servidor) cuando el codigo
     // simplemente no esta en su base: es un "no encontrado" legitimo.
     if (res.status === 404) return { metadata: null, error: false };
     if (!res.ok) return { metadata: null, error: true };
@@ -94,6 +98,33 @@ async function lookupOpenFoodFacts(code) {
   }
 }
 
+const lookupOpenFoodFacts = (code) => lookupOpenFactsFamily('https://world.openfoodfacts.org', code);
+const lookupOpenProductsFacts = (code) => lookupOpenFactsFamily('https://world.openproductsfacts.org', code);
+const lookupOpenBeautyFacts = (code) => lookupOpenFactsFamily('https://world.openbeautyfacts.org', code);
+
+async function lookupUpcItemDb(code) {
+  try {
+    const res = await fetchWithTimeout(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`);
+    if (!res.ok) return { metadata: null, error: true };
+    const data = await res.json();
+    const item = Array.isArray(data.items) ? data.items[0] : null;
+    if (!item?.title) return { metadata: null, error: false };
+    return {
+      error: false,
+      metadata: {
+        name: item.title,
+        authors: [],
+        publisher: item.brand || '',
+        brand: item.brand || '',
+        subcategory: item.category || '',
+        image_url: Array.isArray(item.images) ? item.images[0] || '' : '',
+      },
+    };
+  } catch {
+    return { metadata: null, error: true };
+  }
+}
+
 export default async function handler(req, res) {
   const code = String(req.query?.code || '').trim();
   if (!code) {
@@ -101,20 +132,27 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Open Library primero: sin limite de cuota. Google Books queda de
-  // respaldo (su cuota anonima es global y puede estar saturada).
-  const providers = isBookCode(code)
-    ? [() => lookupOpenLibrary(code), () => lookupGoogleBooks(code)]
-    : [() => lookupOpenFoodFacts(code)];
-
-  let anyError = false;
-  for (const run of providers) {
-    const { metadata, error } = await run();
-    if (metadata) {
-      res.status(200).json({ metadata, failed: false });
+  if (isBookCode(code)) {
+    // Open Library primero: sin limite de cuota. Google Books queda de
+    // respaldo (su cuota anonima es global y puede estar saturada).
+    const openLibrary = await lookupOpenLibrary(code);
+    if (openLibrary.metadata) {
+      res.status(200).json({ metadata: openLibrary.metadata, failed: false });
       return;
     }
-    if (error) anyError = true;
+    const googleBooks = await lookupGoogleBooks(code);
+    res.status(200).json({ metadata: googleBooks.metadata, failed: openLibrary.error || googleBooks.error });
+    return;
   }
-  res.status(200).json({ metadata: null, failed: anyError });
+
+  // No-libro: se consultan las 4 fuentes en paralelo (no en cadena) para no
+  // sumar sus timeouts uno atras del otro y quedarse sin tiempo de funcion.
+  const providers = [lookupOpenFoodFacts, lookupOpenProductsFacts, lookupOpenBeautyFacts, lookupUpcItemDb];
+  const results = await Promise.all(providers.map((run) => run(code)));
+  const found = results.find((r) => r.metadata);
+  if (found) {
+    res.status(200).json({ metadata: found.metadata, failed: false });
+    return;
+  }
+  res.status(200).json({ metadata: null, failed: results.some((r) => r.error) });
 }
