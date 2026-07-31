@@ -1816,7 +1816,7 @@ export default function PosPage() {
               </div>
             </div>
           ) : null}
-          <div className="card space-y-3">
+          <div className="card !bg-neutral-50 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-lg font-semibold">Carrito ({formatQty(totalQty)})</h2>
               <div className="flex gap-2">
