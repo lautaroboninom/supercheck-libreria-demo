@@ -125,6 +125,42 @@ async function lookupUpcItemDb(code) {
   }
 }
 
+// EAN-Search.org: base comercial (no crowdsourced), cubre mas de 1200 millones
+// de codigos internacionales. Requiere una API key gratuita propia (registro
+// en https://www.ean-search.org/ean-database-api.html) puesta en la variable
+// de entorno EAN_SEARCH_API_TOKEN de Vercel (server-side, sin prefijo VITE_
+// para que no quede expuesta en el bundle del navegador). Si la variable no
+// esta configurada, esta funcion simplemente no aporta nada (no rompe nada).
+async function lookupEanSearch(code) {
+  const token = process.env.EAN_SEARCH_API_TOKEN;
+  if (!token) return { metadata: null, error: false };
+  try {
+    const res = await fetchWithTimeout(
+      `https://api.ean-search.org/api?token=${encodeURIComponent(token)}&op=barcode-lookup&format=json&ean=${encodeURIComponent(code)}`
+    );
+    if (!res.ok) return { metadata: null, error: true };
+    const data = await res.json();
+    // La respuesta exitosa es un array (ej: [{ name, categoryName, ... }]).
+    // Cualquier otra forma (objeto de error, array vacio) se trata como "no
+    // encontrado" en vez de romper el parseo.
+    const item = Array.isArray(data) ? data[0] : null;
+    if (!item?.name) return { metadata: null, error: false };
+    return {
+      error: false,
+      metadata: {
+        name: item.name,
+        authors: [],
+        publisher: '',
+        brand: '',
+        subcategory: item.categoryName || '',
+        image_url: '',
+      },
+    };
+  } catch {
+    return { metadata: null, error: true };
+  }
+}
+
 export default async function handler(req, res) {
   const code = String(req.query?.code || '').trim();
   if (!code) {
@@ -133,21 +169,36 @@ export default async function handler(req, res) {
   }
 
   if (isBookCode(code)) {
-    // Open Library primero: sin limite de cuota. Google Books queda de
-    // respaldo (su cuota anonima es global y puede estar saturada).
+    // Open Library primero: sin limite de cuota. Google Books y EAN-Search
+    // quedan de respaldo (Google por cuota anonima global, EAN-Search porque
+    // requiere key propia y puede no estar configurada).
     const openLibrary = await lookupOpenLibrary(code);
     if (openLibrary.metadata) {
       res.status(200).json({ metadata: openLibrary.metadata, failed: false });
       return;
     }
     const googleBooks = await lookupGoogleBooks(code);
-    res.status(200).json({ metadata: googleBooks.metadata, failed: openLibrary.error || googleBooks.error });
+    if (googleBooks.metadata) {
+      res.status(200).json({ metadata: googleBooks.metadata, failed: false });
+      return;
+    }
+    const eanSearch = await lookupEanSearch(code);
+    res.status(200).json({
+      metadata: eanSearch.metadata,
+      failed: openLibrary.error || googleBooks.error || eanSearch.error,
+    });
     return;
   }
 
-  // No-libro: se consultan las 4 fuentes en paralelo (no en cadena) para no
+  // No-libro: se consultan las fuentes en paralelo (no en cadena) para no
   // sumar sus timeouts uno atras del otro y quedarse sin tiempo de funcion.
-  const providers = [lookupOpenFoodFacts, lookupOpenProductsFacts, lookupOpenBeautyFacts, lookupUpcItemDb];
+  const providers = [
+    lookupOpenFoodFacts,
+    lookupOpenProductsFacts,
+    lookupOpenBeautyFacts,
+    lookupUpcItemDb,
+    lookupEanSearch,
+  ];
   const results = await Promise.all(providers.map((run) => run(code)));
   const found = results.find((r) => r.metadata);
   if (found) {
