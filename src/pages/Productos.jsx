@@ -309,6 +309,7 @@ const EMPTY_EDIT_PRODUCT = {
   default_price_online_ars: '0',
   brand: '',
   subcategory: '',
+  image_url: '',
   unit_of_measure: 'unit',
   iva_rate_pct: '21',
   usual_supplier_id: '',
@@ -856,6 +857,7 @@ export default function ProductosPage() {
       sku_prefix: row.sku_prefix || '',
       brand: row.brand || '',
       subcategory: row.subcategory || '',
+      image_url: row.image_url || '',
       unit_of_measure: row.unit_of_measure || 'unit',
       iva_rate_pct: String(row.iva_rate_pct ?? 21),
       usual_supplier_id: row.usual_supplier_id ? String(row.usual_supplier_id) : '',
@@ -886,6 +888,9 @@ export default function ProductosPage() {
         sku_prefix: editProductForm.sku_prefix || undefined,
         brand: editProductForm.brand || undefined,
         subcategory: editProductForm.subcategory || undefined,
+        // Se manda siempre (no `|| undefined`) para que vaciar el campo borre
+        // la imagen en vez de dejar la anterior.
+        image_url: editProductForm.image_url || '',
         unit_of_measure: editProductForm.unit_of_measure || 'unit',
         iva_rate_pct: Number(editProductForm.iva_rate_pct || 21),
         usual_supplier_id: editProductForm.usual_supplier_id ? Number(editProductForm.usual_supplier_id) : null,
@@ -2534,6 +2539,30 @@ export default function ProductosPage() {
                   onChange={(e) => setEditProductForm((prev) => ({ ...prev, sku_prefix: e.target.value }))}
                   placeholder="Prefijo SKU"
                 />
+                {/* Muchas fuentes del lookup no traen foto (EAN-Search, por ejemplo, solo
+                    devuelve nombre y categoria), asi que se puede pegar una URL a mano. */}
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <input
+                      className="input w-full"
+                      value={editProductForm.image_url}
+                      onChange={(e) => setEditProductForm((prev) => ({ ...prev, image_url: e.target.value }))}
+                      placeholder="URL de la imagen (opcional)"
+                    />
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Si el escaneo no trajo foto, pega aca la direccion de una imagen. Vaciar el campo la quita.
+                    </p>
+                  </div>
+                  {editProductForm.image_url ? (
+                    <img
+                      src={editProductForm.image_url}
+                      alt="Vista previa"
+                      className="h-14 w-14 shrink-0 rounded border border-neutral-200 object-cover"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      onLoad={(e) => { e.currentTarget.style.display = ''; }}
+                    />
+                  ) : null}
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   <input
                     className="input"
