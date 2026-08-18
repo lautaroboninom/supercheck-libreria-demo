@@ -393,6 +393,7 @@ export default function PosPage() {
   const [draftsLoading, setDraftsLoading] = useState(false);
   const [totalsDetailOpen, setTotalsDetailOpen] = useState(false);
   const [cajaPanelOpen, setCajaPanelOpen] = useState(true);
+  const [flashVariantId, setFlashVariantId] = useState(null);
   const cajaWasOpenRef = useRef(false);
   const [pendingRows, setPendingRows] = useState([]);
   const [pendingSummary, setPendingSummary] = useState(null);
@@ -2040,8 +2041,8 @@ export default function PosPage() {
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <Accordion
               title="Cliente y notas"
-              open={customerPanelOpen}
-              onToggle={() => setCustomerPanelOpen((prev) => !prev)}
+              open={clientNotesOpen}
+              onToggle={() => setClientNotesOpen((prev) => !prev)}
               badge={
                 customerName || customerDoc ? (
                   <span className="chip chip-active px-2 text-[11px]">{customerName || customerDoc}</span>
@@ -2085,8 +2086,8 @@ export default function PosPage() {
 
             <Accordion
               title="Borradores en espera"
-              open={draftsPanelOpen}
-              onToggle={() => setDraftsPanelOpen((prev) => !prev)}
+              open={draftsOpen}
+              onToggle={() => setDraftsOpen((prev) => !prev)}
               badge={drafts.length ? <span className="chip num px-2 text-[11px]">{drafts.length}</span> : null}
             >
               <input
