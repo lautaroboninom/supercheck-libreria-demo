@@ -1379,6 +1379,10 @@ function dashboard(state) {
 const BOOK_EAN_PREFIXES = ['978', '979'];
 const isBookCode = (code) => BOOK_EAN_PREFIXES.some((prefix) => code.startsWith(prefix));
 
+// Se usa cuando la funcion serverless no llego a contestar (o contesto sin el
+// detalle por fuente), para que `sources_checked` nunca quede vacio.
+const EXTERNAL_SOURCE_FALLBACK = (status) => [{ source: 'externo', status }];
+
 // El lookup real (Google Books / Open Library / Open Food Facts) corre en la
 // funcion serverless propia de Vercel (api/barcode-lookup.js), no aca. Llamarlas
 // directo desde el navegador falla: Open Library no envia cabecera CORS y la
@@ -1387,11 +1391,20 @@ const isBookCode = (code) => BOOK_EAN_PREFIXES.some((prefix) => code.startsWith(
 async function lookupExternalBarcodeMetadata(code) {
   try {
     const res = await fetch(`/api/barcode-lookup?code=${encodeURIComponent(code)}`);
-    if (!res.ok) return { metadata: null, failed: true };
+    if (!res.ok) return { metadata: null, failed: true, sources: EXTERNAL_SOURCE_FALLBACK('error') };
     const data = await res.json();
-    return { metadata: data?.metadata || null, failed: !!data?.failed };
+    return {
+      metadata: data?.metadata || null,
+      failed: !!data?.failed,
+      // La funcion informa el estado de cada fuente por separado; se pasa tal
+      // cual para que la UI pueda distinguir "ninguna lo tiene" de "alguna se
+      // cayo", y para ver de un vistazo si una API key quedo sin configurar.
+      sources: Array.isArray(data?.sources) && data.sources.length
+        ? data.sources
+        : EXTERNAL_SOURCE_FALLBACK(data?.failed ? 'error' : 'not_found'),
+    };
   } catch {
-    return { metadata: null, failed: true };
+    return { metadata: null, failed: true, sources: EXTERNAL_SOURCE_FALLBACK('error') };
   }
 }
 
@@ -1552,13 +1565,14 @@ async function routeDemo(state, method, pathname, params, payload) {
         local_match: localVariant,
       };
     }
-    const { metadata, failed } = await lookupExternalBarcodeMetadata(code);
+    const { metadata, failed, sources } = await lookupExternalBarcodeMetadata(code);
     if (metadata) {
       return {
         status: 'metadata_found',
         barcode: code,
         detail: 'Se encontraron datos del producto.',
         metadata,
+        sources_checked: sources,
         suggestions: { product: { name: metadata.name }, variant: { barcode_internal: code } },
       };
     }
@@ -1567,14 +1581,14 @@ async function routeDemo(state, method, pathname, params, payload) {
         status: 'provider_unavailable',
         barcode: code,
         detail: 'No se pudo consultar la fuente de datos externa.',
-        sources_checked: [{ source: 'externo', status: 'error' }],
+        sources_checked: sources,
       };
     }
     return {
       status: 'not_found',
       barcode: code,
       detail: 'No se encontraron datos para este codigo.',
-      sources_checked: [{ source: 'externo', status: 'not_found' }],
+      sources_checked: sources,
     };
   }
   match = pathname.match(/^\/api\/retail\/barcodes\/intake\/$/);
