@@ -472,6 +472,7 @@ export default function ProductosPage() {
   const [variantes, setVariantes] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [activeTab, setActiveTab] = useState('intake');
+  const [cameraScannerMode, setCameraScannerMode] = useState(null);
   const [q, setQ] = useState('');
 
   const [prodForm, setProdForm] = useState({ ...EMPTY_PRODUCT });
@@ -1796,23 +1797,43 @@ export default function ProductosPage() {
                 <label htmlFor="productos-barcode-intake" className="block text-sm font-semibold text-neutral-900">
                   ISBN o EAN
                 </label>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <input
-                    id="productos-barcode-intake"
-                    ref={lookupInputRef}
-                    className="input h-14 font-mono text-lg tracking-wide"
-                    value={lookupCode}
-                    onChange={(e) => changeLookupCode(e.target.value)}
-                    placeholder="Escanea o escribe el codigo"
-                    inputMode="text"
-                    autoCapitalize="characters"
-                    autoComplete="off"
-                    spellCheck={false}
-                    disabled={lookupLoading || saving}
-                  />
-                  <button className="btn min-h-14 px-7" disabled={lookupLoading || saving} type="submit">
-                    {lookupLoading ? 'Buscando...' : 'Buscar'}
-                  </button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="flex flex-1 gap-2">
+                    <input
+                      id="productos-barcode-intake"
+                      ref={lookupInputRef}
+                      className="input h-14 font-mono text-lg tracking-wide flex-1"
+                      value={lookupCode}
+                      onChange={(e) => changeLookupCode(e.target.value)}
+                      placeholder="Escanea o escribe el codigo"
+                      inputMode="text"
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={lookupLoading || saving}
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary h-14 px-4 sm:hidden"
+                      onClick={() => setCameraScannerMode('intake')}
+                      title="Escanear con camara"
+                    >
+                      📷
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="btn h-14 flex-1 px-7 sm:flex-none" disabled={lookupLoading || saving} type="submit">
+                      {lookupLoading ? 'Buscando...' : 'Buscar'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary h-14 hidden sm:flex items-center gap-2 px-4"
+                      onClick={() => setCameraScannerMode('intake')}
+                      title="Escanear con camara"
+                    >
+                      📷 Camara
+                    </button>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
                   <span>El lector envia Enter automaticamente. Tambien puedes escribir el codigo.</span>
@@ -2194,20 +2215,36 @@ export default function ProductosPage() {
                       <input
                         ref={barcodeInputRef}
                         className="input flex-1"
-                        placeholder="Escanear o escribir ISBN/EAN-13 (si lo dejas vacio, se genera)"
+                        placeholder="Escanear o escribir ISBN/EAN-13"
                         value={varForm.barcode_internal}
                         onChange={(e) => setVarForm((v) => ({ ...v, barcode_internal: e.target.value }))}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') e.preventDefault();
                         }}
                       />
-                      <button
-                        type="button"
-                        className="px-3 py-2 rounded border whitespace-nowrap"
-                        onClick={() => barcodeInputRef.current?.focus()}
-                      >
-                        Escanear
-                      </button>
+                        <button
+                          type="button"
+                          className="btn-secondary px-3 sm:hidden"
+                          onClick={() => setCameraScannerMode('variant')}
+                          title="Escanear con camara"
+                        >
+                          📷
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary px-3 whitespace-nowrap"
+                          onClick={() => barcodeInputRef.current?.focus()}
+                        >
+                          Foco
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary px-3 hidden sm:flex items-center gap-1 whitespace-nowrap"
+                          onClick={() => setCameraScannerMode('variant')}
+                          title="Escanear con camara"
+                        >
+                          📷 Camara
+                        </button>
                     </div>
                     <p className="text-xs text-gray-500">Para libros se usa el ISBN/EAN impreso. Si queda vacio, el sistema genera un EAN-13 interno.</p>
                   </div>
@@ -3650,6 +3687,23 @@ export default function ProductosPage() {
           </div>
         </div>
       ) : null}
+
+      {cameraScannerMode && (
+        <CameraScanner 
+          onClose={() => setCameraScannerMode(null)}
+          onScan={(code) => {
+            const mode = cameraScannerMode;
+            setCameraScannerMode(null);
+            if (mode === 'intake') {
+              changeLookupCode(code);
+              // Allow state to update before submitting
+              setTimeout(() => runBarcodeLookup(new Event('submit')), 100);
+            } else if (mode === 'variant') {
+              setVarForm((v) => ({ ...v, barcode_internal: code }));
+            }
+          }}
+        />
+      )}
 
       {err ? <p className="text-sm text-red-700">{err}</p> : null}
       {msg ? <p className="text-sm text-green-700">{msg}</p> : null}

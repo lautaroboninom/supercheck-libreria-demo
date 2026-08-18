@@ -24,6 +24,7 @@ import {
 } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { can, PERMISSION_CODES } from '../lib/permissions';
+import CameraScanner from '../components/CameraScanner';
 
 const PAYMENT_OPTIONS = [
   { value: 'cash', label: 'Efectivo' },
@@ -301,6 +302,7 @@ export default function PosPage() {
   const [manualSearchOpen, setManualSearchOpen] = useState(false);
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [salesHistoryOpen, setSalesHistoryOpen] = useState(false);
+  const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [quoteBusy, setQuoteBusy] = useState(false);
@@ -1743,25 +1745,55 @@ export default function PosPage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
           <form className="space-y-2 rounded-lg border border-neutral-200 bg-white p-3 shadow-sm" onSubmit={handleScanSubmit}>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
-              <div className="md:col-span-3">
+            <div className="flex flex-col gap-2 md:flex-row md:items-end">
+              <div className="flex-1">
                 <label className="label">Scanner: barcode, SKU, PLU o etiqueta de balanza</label>
-                <input
-                  ref={scanRef}
-                  className={`input ${quickMode ? 'ring-2 ring-indigo-200' : ''}`}
-                  value={scan}
-                  onChange={(e) => setScan(e.target.value)}
-                  disabled={voidModal.open}
-                  placeholder={voidModal.open ? 'Autorizacion de encargado en curso' : 'Ej: 7790001000017 / 12345'}
-                />
+                <div className="flex gap-2">
+                  <input
+                    ref={scanRef}
+                    className={`input flex-1 ${quickMode ? 'ring-2 ring-indigo-200' : ''}`}
+                    value={scan}
+                    onChange={(e) => setScan(e.target.value)}
+                    disabled={voidModal.open}
+                    placeholder={voidModal.open ? 'Autorizacion en curso' : 'Ej: 779... / 12345'}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary px-3 sm:hidden"
+                    onClick={() => setCameraScannerOpen(true)}
+                    title="Escanear con camara"
+                  >
+                    📷
+                  </button>
+                </div>
               </div>
-              <button type="submit" className="btn md:mt-[1.36rem]" disabled={busy || voidModal.open}>
-                Agregar
-              </button>
-              <button type="button" className="btn-secondary md:mt-[1.36rem]" onClick={() => focusScan(true)}>
-                Foco scanner
-              </button>
+              <div className="flex gap-2">
+                <button type="submit" className="btn flex-1 md:flex-none" disabled={busy || voidModal.open}>
+                  Agregar
+                </button>
+                <button type="button" className="btn-secondary flex-1 md:flex-none" onClick={() => focusScan(true)}>
+                  Foco
+                </button>
+                <button 
+                  type="button" 
+                  className="btn-secondary hidden sm:flex md:flex-none items-center gap-1" 
+                  onClick={() => setCameraScannerOpen(true)}
+                  title="Escanear con camara"
+                >
+                  📷 Camara
+                </button>
+              </div>
             </div>
+            {cameraScannerOpen && (
+              <CameraScanner 
+                onClose={() => setCameraScannerOpen(false)}
+                onScan={(code) => {
+                  setCameraScannerOpen(false);
+                  setScan(code);
+                  submitScanCode(code);
+                }}
+              />
+            )}
             <div className="flex items-center justify-between gap-2">
               <span className="label !mb-0">Busqueda manual de productos</span>
               <button
