@@ -404,9 +404,18 @@ const PRODUCT_TABS = [
 
 function sourceStatusIsUnavailable(status) {
   const normalized = String(status || '').trim().toLowerCase();
-  return ['error', 'timeout', 'unavailable', 'provider_unavailable', 'network_error'].some((value) =>
+  return ['error', 'timeout', 'unavailable', 'network_error'].some((value) =>
     normalized.includes(value)
   );
+}
+
+// Una fuente es concluyente cuando llego a decir si tiene o no el codigo. Se
+// define por descarte (todo lo que no sea una falla ni una fuente que ni se
+// consulto) para no romper con backends que nombren distinto sus estados.
+function sourceStatusIsConclusive(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (!normalized || sourceStatusIsUnavailable(normalized)) return false;
+  return !['not_configured', 'skipped'].includes(normalized);
 }
 
 function lookupDisplayStatus(result) {
@@ -423,10 +432,15 @@ function lookupDisplayStatus(result) {
       ? 'existing_active'
       : 'existing_inactive';
   }
+  // Solo se avisa "servicio no disponible" cuando NINGUNA fuente llego a
+  // contestar: ahi reintentar tiene sentido. Que una se caiga mientras las
+  // demas responden que no lo tienen es un "no encontrado" comun, y mostrarlo
+  // como falla del servicio invita a reintentar sin motivo.
   if (
     status === 'not_found' &&
     Array.isArray(result?.sources_checked) &&
-    result.sources_checked.some((source) => sourceStatusIsUnavailable(source?.status))
+    result.sources_checked.length > 0 &&
+    !result.sources_checked.some((source) => sourceStatusIsConclusive(source?.status))
   ) {
     return 'provider_unavailable';
   }
