@@ -1944,11 +1944,28 @@ export default function ProductosPage() {
                       <p className="text-neutral-700">
                         No se creara ningun producto automaticamente. Puedes cargarlo manualmente conservando este codigo.
                       </p>
-                      {canEdit ? (
-                        <button type="button" className="btn-secondary" onClick={openAdvancedManual}>
-                          Abrir alta manual
-                        </button>
-                      ) : null}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {canEdit ? (
+                          <button type="button" className="btn-secondary" onClick={openAdvancedManual}>
+                            Abrir alta manual
+                          </button>
+                        ) : null}
+                        {/* Consulta manual en una base que no forma parte del lookup automatico:
+                            sus terminos solo permiten acceso programatico via API paga, asi que
+                            se abre para que la persona lea el resultado y copie los datos. */}
+                        <a
+                          className="btn-secondary"
+                          href={`https://go-upc.com/search?q=${encodeURIComponent(lookupResult?.barcode || lookupCode || '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Buscar en Go-UPC
+                        </a>
+                      </div>
+                      <p className="text-xs text-neutral-500">
+                        Go-UPC es otra base de datos, se abre en una pestana nueva con el codigo ya cargado. Si aparece el
+                        producto, copia el nombre y la marca al alta manual.
+                      </p>
                     </div>
                   ) : null}
 

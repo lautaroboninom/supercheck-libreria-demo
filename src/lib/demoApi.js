@@ -1058,6 +1058,10 @@ function createProduct(state, payload = {}) {
     sku_prefix: normalizeText(payload.sku_prefix) || `P${id}`,
     brand: normalizeText(payload.brand),
     subcategory: normalizeText(payload.subcategory),
+    // URL de la imagen que devolvio la fuente externa del lookup. Se guarda en
+    // el producto y se copia a cada variante como product_image_url, que es lo
+    // que leen la tabla del catalogo y el detalle.
+    image_url: normalizeText(payload.image_url),
     unit_of_measure: payload.unit_of_measure || 'unidad',
     iva_rate_pct: Number(payload.iva_rate_pct || 21),
     usual_supplier_id: payload.usual_supplier_id ? Number(payload.usual_supplier_id) : null,
@@ -1080,6 +1084,7 @@ function patchProduct(state, id, payload = {}) {
     if (Number(variant.product_id) === Number(id)) {
       variant.producto = row.name;
       variant.product_name = row.name;
+      variant.product_image_url = row.image_url || '';
     }
   });
   return row;
@@ -1096,6 +1101,7 @@ function createVariant(state, payload = {}) {
     product_id: product.id,
     producto: product.name,
     product_name: product.name,
+    product_image_url: product.image_url || '',
     display_name: normalizeText(payload.display_name) || `${product.name} ${optionSignature}`.trim(),
     option_signature: optionSignature || normalizeText(payload.option_signature),
     sku: normalizeText(payload.sku) || `${product.sku_prefix}-${id}`,
@@ -1622,6 +1628,7 @@ async function routeDemo(state, method, pathname, params, payload) {
       name: metadata.name,
       brand: metadata.brand,
       subcategory: metadata.subcategory,
+      image_url: metadata.image_url,
       unit_of_measure: 'unidad',
       iva_rate_pct: isBook ? 0 : 21,
       default_cost_ars: 0,
