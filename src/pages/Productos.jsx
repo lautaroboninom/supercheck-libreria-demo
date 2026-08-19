@@ -30,6 +30,7 @@ import { attrCode, normalizeValueError } from '../lib/variantAttributes';
 import InfoHint from '../components/InfoHint';
 import { VariantAttributeRows } from '../components/VariantAttributeRows';
 import VariantBatchCreator from '../components/VariantBatchCreator';
+import ImportModal from '../components/ImportModal';
 
 function errMsg(error) {
   return error?.message || 'Ocurrio un error inesperado';
@@ -467,6 +468,7 @@ export default function ProductosPage() {
   const canGoOnline = can(user, PERMISSION_CODES.PAGE_ONLINE);
 
   const [productos, setProductos] = useState([]);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [atributos, setAtributos] = useState([]);
   const [attrValuesByCode, setAttrValuesByCode] = useState({});
   const [variantes, setVariantes] = useState([]);
@@ -2033,15 +2035,24 @@ export default function ProductosPage() {
               <h2 className="text-lg font-semibold">Altas manuales y combinaciones</h2>
               <p className="text-sm text-neutral-500">Usa estos formularios cuando el alta por escaneo no sea suficiente.</p>
             </div>
-            <button
-              type="button"
-              className="btn-secondary"
-              aria-expanded={createMenuOpen}
-              aria-controls="productos-create-panel"
-              onClick={() => setCreateMenuOpen((prev) => !prev)}
-            >
-              {createMenuOpen ? 'Ocultar formularios' : 'Mostrar formularios'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => setImportModalOpen(true)}
+              >
+                Importar CSV Proveedor
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                aria-expanded={createMenuOpen}
+                aria-controls="productos-create-panel"
+                onClick={() => setCreateMenuOpen((prev) => !prev)}
+              >
+                {createMenuOpen ? 'Ocultar formularios' : 'Mostrar formularios'}
+              </button>
+            </div>
           </div>
           {createMenuOpen ? (
             <div id="productos-create-panel" className="space-y-4">
@@ -3707,6 +3718,15 @@ export default function ProductosPage() {
 
       {err ? <p className="text-sm text-red-700">{err}</p> : null}
       {msg ? <p className="text-sm text-green-700">{msg}</p> : null}
+
+      <ImportModal
+        open={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        onImported={() => {
+          setImportModalOpen(false);
+          loadAll({ query: q });
+        }}
+      />
     </div>
   );
 }
