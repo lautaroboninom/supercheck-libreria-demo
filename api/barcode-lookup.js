@@ -213,6 +213,25 @@ async function runProvidersSequential(providers, code) {
   return summarize(results);
 }
 
+async function translateToSpanish(text) {
+  if (!text || typeof text !== 'string') return text;
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=es&dt=t&q=${encodeURIComponent(text)}`;
+    const res = await fetchWithTimeout(url, 2000);
+    if (!res.ok) return text;
+    const data = await res.json();
+    let translated = '';
+    if (Array.isArray(data[0])) {
+      for (const part of data[0]) {
+        if (part[0]) translated += part[0];
+      }
+    }
+    return translated.trim() || text;
+  } catch {
+    return text;
+  }
+}
+
 export default async function handler(req, res) {
   const code = String(req.query?.code || '').trim();
   if (!code) {
@@ -220,9 +239,18 @@ export default async function handler(req, res) {
     return;
   }
 
-  res.status(200).json(
-    isBookCode(code)
-      ? await runProvidersSequential(BOOK_PROVIDERS, code)
-      : await runProvidersParallel(PRODUCT_PROVIDERS, code)
-  );
+  const result = isBookCode(code)
+    ? await runProvidersSequential(BOOK_PROVIDERS, code)
+    : await runProvidersParallel(PRODUCT_PROVIDERS, code);
+
+  if (result.metadata) {
+    if (result.metadata.name) {
+      result.metadata.name = await translateToSpanish(result.metadata.name);
+    }
+    if (result.metadata.subcategory && result.metadata.subcategory !== 'Libro') {
+      result.metadata.subcategory = await translateToSpanish(result.metadata.subcategory);
+    }
+  }
+
+  res.status(200).json(result);
 }
