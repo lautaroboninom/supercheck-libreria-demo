@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Papa from 'papaparse';
+import readXlsxFile from 'read-excel-file';
 import { postRetailProducto } from '../lib/api';
 
 export default function ImportModal({ open, onClose, onImported }) {
@@ -24,34 +25,65 @@ export default function ImportModal({ open, onClose, onImported }) {
 
   if (!open) return null;
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const f = e.target.files[0];
     if (!f) return;
     setFile(f);
     
-    Papa.parse(f, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (results.meta && results.meta.fields) {
-          setColumns(results.meta.fields);
-          setRawData(results.data);
-          
-          // Auto-guess columns
-          const guess = (keywords) => results.meta.fields.find(f => keywords.some(k => f.toLowerCase().includes(k))) || '';
-          setMapping({
-            barcode: guess(['codigo', 'cod', 'barra', 'ean', 'upc', 'sku']),
-            name: guess(['nombre', 'descrip', 'articulo', 'producto']),
-            cost: guess(['costo', 'precio', 'compra']),
-            stock: guess(['stock', 'cant'])
-          });
-          setStep(2);
+    if (f.name.toLowerCase().endsWith('.csv')) {
+      Papa.parse(f, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (results.meta && results.meta.fields) {
+            setColumns(results.meta.fields);
+            setRawData(results.data);
+            
+            // Auto-guess columns
+            const guess = (keywords) => results.meta.fields.find(f => keywords.some(k => f.toLowerCase().includes(k))) || '';
+            setMapping({
+              barcode: guess(['codigo', 'cod', 'barra', 'ean', 'upc', 'sku']),
+              name: guess(['nombre', 'descrip', 'articulo', 'producto']),
+              cost: guess(['costo', 'precio', 'compra']),
+              stock: guess(['stock', 'cant'])
+            });
+            setStep(2);
+          }
+        },
+        error: (err) => {
+          alert('Error al leer el CSV: ' + err.message);
         }
-      },
-      error: (err) => {
-        alert('Error al leer el CSV: ' + err.message);
+      });
+    } else {
+      try {
+        const rows = await readXlsxFile(f);
+        if (!rows || rows.length < 1) {
+          alert('El archivo Excel está vacío o no se pudo leer.');
+          return;
+        }
+        
+        const headers = rows[0].map(h => String(h || '').trim());
+        const data = rows.slice(1).map(row => {
+          const obj = {};
+          headers.forEach((h, i) => { obj[h] = row[i]; });
+          return obj;
+        });
+        
+        setColumns(headers);
+        setRawData(data);
+        
+        const guess = (keywords) => headers.find(f => keywords.some(k => f.toLowerCase().includes(k))) || '';
+        setMapping({
+          barcode: guess(['codigo', 'cod', 'barra', 'ean', 'upc', 'sku']),
+          name: guess(['nombre', 'descrip', 'articulo', 'producto']),
+          cost: guess(['costo', 'precio', 'compra']),
+          stock: guess(['stock', 'cant'])
+        });
+        setStep(2);
+      } catch (err) {
+        alert('Error al leer el archivo Excel: ' + err.message);
       }
-    });
+    }
   };
 
   const previewData = rawData.slice(0, 5).map(row => {
@@ -133,11 +165,11 @@ export default function ImportModal({ open, onClose, onImported }) {
         <div className="p-6 overflow-y-auto">
           {step === 1 && (
             <div className="text-center py-10">
-              <p className="text-gray-600 mb-6">Sube el archivo Excel de tu proveedor guardado como formato CSV.</p>
+              <p className="text-gray-600 mb-6">Sube el archivo Excel de tu proveedor.</p>
               <label className="btn-primary cursor-pointer inline-flex items-center gap-2">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                Seleccionar archivo CSV
-                <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+                Seleccionar archivo (.xlsx, .csv)
+                <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileUpload} />
               </label>
             </div>
           )}
