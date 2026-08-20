@@ -31,6 +31,7 @@ import InfoHint from '../components/InfoHint';
 import { VariantAttributeRows } from '../components/VariantAttributeRows';
 import VariantBatchCreator from '../components/VariantBatchCreator';
 import ImportModal from '../components/ImportModal';
+import CameraScanner from '../components/CameraScanner';
 
 function errMsg(error) {
   return error?.message || 'Ocurrio un error inesperado';
